@@ -46,26 +46,38 @@ async function checkGracePeriods() {
       // Limpiar URL de MongoDB - eliminar parámetros vacíos
       let mongoUrl = process.env.URLDB;
       
-      // Log para debug
-      logger.info(`URL original: ${mongoUrl.substring(0, 30)}...`);
+      // Log para debug - ocultar credenciales
+      const urlParts = mongoUrl.split('@');
+      const safePart = urlParts.length > 1 ? urlParts[1] : mongoUrl;
+      logger.info(`URL MongoDB (sin credenciales): ...@${safePart}`);
       
-      // Eliminar todos los parámetros vacíos
-      mongoUrl = mongoUrl.replace(/([?&])retryWrites=(?=&|$)/g, '$1');
-      mongoUrl = mongoUrl.replace(/([?&])\w+=(?=&|$)/g, '$1');
-      mongoUrl = mongoUrl.replace(/&&+/g, '&');
-      mongoUrl = mongoUrl.replace(/\?&/g, '?');
-      mongoUrl = mongoUrl.replace(/[?&]$/g, '');
-      
-      // Si hay parámetros vacíos al final, eliminarlos
-      if (mongoUrl.includes('?retryWrites=')) {
-        mongoUrl = mongoUrl.split('?retryWrites=')[0];
+      // Solución más agresiva: eliminar completamente retryWrites si está vacío
+      if (mongoUrl.includes('retryWrites=')) {
+        // Buscar el patrón retryWrites= seguido de & o fin de string
+        mongoUrl = mongoUrl.replace(/[?&]retryWrites=(&|$)/g, (match, p1) => {
+          return p1 === '&' ? match.charAt(0) : '';
+        });
+        
+        // Si queda solo ?retryWrites= al final
+        mongoUrl = mongoUrl.replace(/\?retryWrites=$/, '');
+        
+        // Si queda &retryWrites= en medio
+        mongoUrl = mongoUrl.replace(/&retryWrites=&/g, '&');
+        mongoUrl = mongoUrl.replace(/&retryWrites=$/, '');
       }
       
-      logger.info(`URL limpia: ${mongoUrl.substring(0, 30)}...`);
+      // Limpiar múltiples & o ? al final
+      mongoUrl = mongoUrl.replace(/&&+/g, '&');
+      mongoUrl = mongoUrl.replace(/\?$/, '');
+      mongoUrl = mongoUrl.replace(/&$/, '');
+      
+      const safePartClean = mongoUrl.split('@')[1] || mongoUrl;
+      logger.info(`URL MongoDB limpia: ...@${safePartClean}`);
       
       dbConnection = await mongoose.connect(mongoUrl, {
         useNewUrlParser: true,
-        useUnifiedTopology: true
+        useUnifiedTopology: true,
+        retryWrites: true // Especificar explícitamente
       });
       logger.info('✅ Conectado a MongoDB exitosamente');
     } else {
