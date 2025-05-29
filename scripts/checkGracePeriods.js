@@ -49,27 +49,34 @@ async function checkGracePeriods() {
       // Log para debug - ocultar credenciales
       const urlParts = mongoUrl.split('@');
       const safePart = urlParts.length > 1 ? urlParts[1] : mongoUrl;
-      logger.info(`URL MongoDB (sin credenciales): ...@${safePart}`);
+      logger.info(`URL MongoDB original (sin credenciales): ...@${safePart}`);
       
-      // Solución más agresiva: eliminar completamente retryWrites si está vacío
-      if (mongoUrl.includes('retryWrites=')) {
-        // Buscar el patrón retryWrites= seguido de & o fin de string
-        mongoUrl = mongoUrl.replace(/[?&]retryWrites=(&|$)/g, (match, p1) => {
-          return p1 === '&' ? match.charAt(0) : '';
-        });
+      // Solución definitiva: eliminar TODOS los parámetros de query si hay problemas
+      const urlBase = mongoUrl.split('?')[0];
+      const queryString = mongoUrl.split('?')[1];
+      
+      if (queryString) {
+        logger.info(`Query string detectado: ${queryString}`);
         
-        // Si queda solo ?retryWrites= al final
-        mongoUrl = mongoUrl.replace(/\?retryWrites=$/, '');
-        
-        // Si queda &retryWrites= en medio
-        mongoUrl = mongoUrl.replace(/&retryWrites=&/g, '&');
-        mongoUrl = mongoUrl.replace(/&retryWrites=$/, '');
+        // Si hay retryWrites vacío, eliminar TODOS los parámetros
+        if (queryString.includes('retryWrites=')) {
+          logger.warn('Detectado retryWrites vacío - eliminando todos los parámetros de query');
+          mongoUrl = urlBase;
+        } else {
+          // Parsear parámetros y eliminar los vacíos
+          const params = new URLSearchParams(queryString);
+          const validParams = [];
+          
+          for (const [key, value] of params) {
+            if (value && value.trim() !== '') {
+              validParams.push(`${key}=${value}`);
+            }
+          }
+          
+          // Reconstruir URL solo con parámetros válidos
+          mongoUrl = validParams.length > 0 ? `${urlBase}?${validParams.join('&')}` : urlBase;
+        }
       }
-      
-      // Limpiar múltiples & o ? al final
-      mongoUrl = mongoUrl.replace(/&&+/g, '&');
-      mongoUrl = mongoUrl.replace(/\?$/, '');
-      mongoUrl = mongoUrl.replace(/&$/, '');
       
       const safePartClean = mongoUrl.split('@')[1] || mongoUrl;
       logger.info(`URL MongoDB limpia: ...@${safePartClean}`);
