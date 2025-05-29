@@ -1,7 +1,9 @@
+require('dotenv').config();
 const mongoose = require('mongoose');
 const logger = require('../utils/logger');
 const subscriptionService = require('../services/subscriptionService');
 const emailService = require('../services/emailService');
+const loadEnv = require('../config/env');
 
 /**
  * Script para verificar y procesar períodos de gracia
@@ -17,9 +19,24 @@ async function checkGracePeriods() {
     logger.info(`Fecha/Hora: ${new Date().toISOString()}`);
     logger.info('========================================');
 
+    // Cargar variables de entorno desde AWS Secrets Manager
+    logger.info('🔑 Cargando configuración desde AWS Secrets Manager...');
+    const envVars = await loadEnv();
+    
+    // Parsear las variables de entorno
+    envVars.split('\n').forEach(line => {
+      if (line) {
+        const [key, value] = line.split('=');
+        if (key && value) {
+          process.env[key] = value;
+        }
+      }
+    });
+    logger.info('✅ Variables de entorno cargadas exitosamente');
+
     // Verificar variables de entorno críticas
     if (!process.env.URLDB) {
-      throw new Error('URLDB no está configurada');
+      throw new Error('URLDB no está configurada después de cargar desde Secrets Manager');
     }
 
     // Conectar a MongoDB si no está conectado
