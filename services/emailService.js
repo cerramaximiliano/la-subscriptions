@@ -4,10 +4,10 @@ const logger = require('../utils/logger');
 // Configurar cliente SES
 const sesClient = new SESClient({
   region: process.env.AWS_REGION || 'us-east-1', // Cambiar a us-east-1 donde los emails están verificados
-  credentials: process.env.AWS_ACCESS_KEY_ID ? {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
-  } : undefined // Usar credenciales del IAM role si no se especifican
+  credentials: {
+    accessKeyId: process.env.AWS_SES_KEY_ID,
+    secretAccessKey: process.env.AWS_SES_ACCESS_KEY,
+  }
 });
 
 // Plantillas de email
@@ -195,8 +195,8 @@ const emailTemplates = {
           <div class="content">
             <p>Hola ${data.userName || 'Usuario'},</p>
             <p>Tu período de gracia ha finalizado y hemos procedido con el archivado 
-  automático de elementos que excedían los límites del plan ${data.targetPlan || 
-  'gratuito'}.</p>
+  automático de elementos que excedían los límites del plan ${data.targetPlan ||
+      'gratuito'}.</p>
             
             ${data.totalArchived > 0 ? `
               <div class="info">

@@ -45,15 +45,23 @@ async function checkGracePeriods() {
       
       // Limpiar URL de MongoDB - eliminar parámetros vacíos
       let mongoUrl = process.env.URLDB;
-      if (mongoUrl.includes('retryWrites=&')) {
-        mongoUrl = mongoUrl.replace('retryWrites=&', '');
+      
+      // Log para debug
+      logger.info(`URL original: ${mongoUrl.substring(0, 30)}...`);
+      
+      // Eliminar todos los parámetros vacíos
+      mongoUrl = mongoUrl.replace(/([?&])retryWrites=(?=&|$)/g, '$1');
+      mongoUrl = mongoUrl.replace(/([?&])\w+=(?=&|$)/g, '$1');
+      mongoUrl = mongoUrl.replace(/&&+/g, '&');
+      mongoUrl = mongoUrl.replace(/\?&/g, '?');
+      mongoUrl = mongoUrl.replace(/[?&]$/g, '');
+      
+      // Si hay parámetros vacíos al final, eliminarlos
+      if (mongoUrl.includes('?retryWrites=')) {
+        mongoUrl = mongoUrl.split('?retryWrites=')[0];
       }
-      if (mongoUrl.includes('&retryWrites=')) {
-        mongoUrl = mongoUrl.replace('&retryWrites=', '');
-      }
-      if (mongoUrl.endsWith('?')) {
-        mongoUrl = mongoUrl.slice(0, -1);
-      }
+      
+      logger.info(`URL limpia: ${mongoUrl.substring(0, 30)}...`);
       
       dbConnection = await mongoose.connect(mongoUrl, {
         useNewUrlParser: true,
