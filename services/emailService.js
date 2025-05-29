@@ -3,7 +3,7 @@ const logger = require('../utils/logger');
 
 // Configurar cliente SES
 const sesClient = new SESClient({
-  region: process.env.AWS_REGION || 'sa-east-1',
+  region: process.env.AWS_REGION || 'us-east-1', // Cambiar a us-east-1 donde los emails están verificados
   credentials: process.env.AWS_ACCESS_KEY_ID ? {
     accessKeyId: process.env.AWS_ACCESS_KEY_ID,
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY

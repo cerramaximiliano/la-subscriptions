@@ -42,7 +42,20 @@ async function checkGracePeriods() {
     // Conectar a MongoDB si no está conectado
     if (mongoose.connection.readyState !== 1) {
       logger.info('📊 Conectando a MongoDB...');
-      dbConnection = await mongoose.connect(process.env.URLDB, {
+      
+      // Limpiar URL de MongoDB - eliminar parámetros vacíos
+      let mongoUrl = process.env.URLDB;
+      if (mongoUrl.includes('retryWrites=&')) {
+        mongoUrl = mongoUrl.replace('retryWrites=&', '');
+      }
+      if (mongoUrl.includes('&retryWrites=')) {
+        mongoUrl = mongoUrl.replace('&retryWrites=', '');
+      }
+      if (mongoUrl.endsWith('?')) {
+        mongoUrl = mongoUrl.slice(0, -1);
+      }
+      
+      dbConnection = await mongoose.connect(mongoUrl, {
         useNewUrlParser: true,
         useUnifiedTopology: true
       });
