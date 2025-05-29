@@ -474,7 +474,7 @@ exports.sendEmail = async (to, templateName, data) => {
     }
 
     const params = {
-      Source: process.env.SES_FROM_EMAIL || 'noreply@tuapp.com',
+      Source: process.env.EMAIL_MARKETING_DEFAULT_SENDER || 'noreply@tuapp.com',
       Destination: {
         ToAddresses: [to]
       },
@@ -619,11 +619,11 @@ exports.verifySESConfiguration = async () => {
   try {
     // Verificar identidad del remitente
     const verifyCommand = new GetIdentityVerificationAttributesCommand({
-      Identities: [process.env.SES_FROM_EMAIL || 'noreply@tuapp.com']
+      Identities: [process.env.EMAIL_MARKETING_DEFAULT_SENDER || 'noreply@tuapp.com']
     });
 
     const response = await sesClient.send(verifyCommand);
-    const verificationStatus = response.VerificationAttributes[process.env.SES_FROM_EMAIL];
+    const verificationStatus = response.VerificationAttributes[process.env.EMAIL_MARKETING_DEFAULT_SENDER];
 
     if (!verificationStatus || verificationStatus.VerificationStatus !== 'Success') {
       logger.warn('Email remitente no verificado en AWS SES');

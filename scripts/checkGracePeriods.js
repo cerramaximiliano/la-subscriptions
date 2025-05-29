@@ -398,7 +398,7 @@ async function notifyAdminError(error) {
     const sesClient = new AWS.SESClient({ region: process.env.AWS_REGION || 'sa-east-1' });
 
     const params = {
-      Source: process.env.SES_FROM_EMAIL || 'noreply@tuapp.com',
+      Source: process.env.EMAIL_MARKETING_DEFAULT_SENDER || 'noreply@tuapp.com',
       Destination: {
         ToAddresses: [process.env.ADMIN_EMAIL]
       },
