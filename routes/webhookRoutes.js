@@ -2,6 +2,7 @@
   const router = express.Router();
   const webhookController = require('../controllers/webhookController');
   const logger = require('../utils/logger');
+  const { checkIdempotency, markEventProcessed, markEventFailed } = require('../middleware/webhookIdempotency');
 
   /**
    * Middleware para logging de webhooks
@@ -36,8 +37,13 @@
     '/webhook',
     webhookLogger,
     express.raw({ type: 'application/json' }),
-    webhookController.handleStripeWebhook
+    checkIdempotency,
+    webhookController.handleStripeWebhook,
+    markEventProcessed
   );
+  
+  // Manejo de errores para marcar eventos fallidos
+  router.use('/webhook', markEventFailed);
 
   /**
    * Ruta alternativa para webhook (por si necesitas múltiples endpoints)
@@ -46,18 +52,27 @@
     '/webhook/stripe',
     webhookLogger,
     express.raw({ type: 'application/json' }),
-    webhookController.handleStripeWebhook
+    checkIdempotency,
+    webhookController.handleStripeWebhook,
+    markEventProcessed
   );
+  
+  // Manejo de errores para marcar eventos fallidos
+  router.use('/webhook/stripe', markEventFailed);
 
   /**
    * Endpoint de prueba para desarrollo
    * Solo disponible en entorno de desarrollo
    */
+  logger.info(`NODE_ENV actual: ${process.env.NODE_ENV}`);
   if (process.env.NODE_ENV !== 'production') {
+    logger.info('Registrando endpoints de desarrollo...');
     router.post(
       '/webhook/test',
       express.json(),
-      webhookController.testWebhook
+      checkIdempotency,
+      webhookController.testWebhook,
+      markEventProcessed
     );
 
     // Endpoint para simular eventos específicos

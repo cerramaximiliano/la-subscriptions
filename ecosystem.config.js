@@ -62,10 +62,10 @@
       cron_restart: '0 2 * * 0', // Reiniciar cada domingo a las 2 AM
     },
 
-    // Configuración del job de verificación de períodos de gracia
+    // Configuración del procesador de períodos de gracia (NUEVO - Microservicio)
     {
-      name: 'grace-period-checker',
-      script: './scripts/checkGracePeriods.js',
+      name: 'grace-period-processor',
+      script: './scripts/gracePeriodProcessor.js',
       instances: 1,
       exec_mode: 'fork',
 
@@ -78,8 +78,8 @@
       },
 
       // Logs específicos para el cron job
-      error_file: './logs/cron-error.log',
-      out_file: './logs/cron-output.log',
+      error_file: './logs/grace-processor-error.log',
+      out_file: './logs/grace-processor-output.log',
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
 
       // No aplicar límites de memoria para jobs cortos

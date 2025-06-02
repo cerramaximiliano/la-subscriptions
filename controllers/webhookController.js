@@ -8,6 +8,68 @@ const logger = require('../utils/logger');
 const subscriptionService =
   require('../services/subscriptionService');
 const emailService = require('../services/emailService');
+const Subscription = require('../models/Subscription');
+
+/**
+ * Maneja webhooks de prueba (solo desarrollo)
+ */
+exports.testWebhook = async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(404).json({ error: 'Not available in production' });
+  }
+
+  const event = req.body;
+  
+  // Validar estructura básica del evento
+  if (!event || !event.id || !event.type) {
+    return res.status(400).json({ 
+      error: 'Invalid event structure',
+      required: ['id', 'type', 'data']
+    });
+  }
+
+  logger.info(`Test webhook received: ${event.type} - ID: ${event.id}`);
+  
+  // Procesar el evento usando la misma lógica que handleStripeWebhook
+  try {
+    switch (event.type) {
+      case 'checkout.session.completed':
+        await handleCheckoutSessionCompleted(event);
+        break;
+      case 'customer.subscription.created':
+        await handleSubscriptionCreated(event);
+        break;
+      case 'customer.subscription.updated':
+        await handleSubscriptionUpdated(event);
+        break;
+      case 'customer.subscription.deleted':
+        await handleSubscriptionDeleted(event);
+        break;
+      case 'invoice.paid':
+        await handleInvoicePaid(event);
+        break;
+      case 'invoice.payment_succeeded':
+        await handleInvoicePaymentSucceeded(event);
+        break;
+      case 'invoice.payment_failed':
+        await handleInvoicePaymentFailed(event);
+        break;
+      default:
+        logger.warn(`Test webhook - Evento no manejado: ${event.type}`);
+    }
+
+    res.json({ received: true, type: event.type, test: true });
+
+  } catch (error) {
+    logger.error(`Error procesando test webhook ${event.type}:`, error);
+    res.json({
+      received: true,
+      error: true,
+      message: error.message,
+      test: true
+    });
+  }
+};
 
 /**
  * Maneja los webhooks de Stripe
@@ -44,31 +106,28 @@ exports.handleStripeWebhook = async (req, res) => {
 
   // Log del tipo de evento recibido
   logger.info(`Evento Stripe recibido: ${event.type}`);
+  
+  // IMPORTANTE: Este microservicio solo maneja eventos de pagos fallidos/recuperación
+  const PAYMENT_EVENTS = [
+    'invoice.payment_failed',
+    'invoice.payment_succeeded',
+    'invoice.paid',
+    'charge.failed'
+  ];
+
+  // Si no es un evento de pagos, lo dejamos pasar al servidor principal
+  if (!PAYMENT_EVENTS.includes(event.type)) {
+    logger.info(`[SKIP] Evento ${event.type} no es de pagos - ignorando en este servicio`);
+    return res.status(200).json({ received: true, processed: false });
+  }
+
   logger.debug('Datos del evento:',
     JSON.stringify(event.data.object, null, 2));
 
-  // Procesar el evento
+  // Procesar solo eventos de pagos
   try {
     switch (event.type) {
-      // Eventos de sesión de checkout
-      case 'checkout.session.completed':
-        await handleCheckoutSessionCompleted(event);
-        break;
-
-      // Eventos de suscripción
-      case 'customer.subscription.created':
-        await handleSubscriptionCreated(event);
-        break;
-
-      case 'customer.subscription.updated':
-        await handleSubscriptionUpdated(event);
-        break;
-
-      case 'customer.subscription.deleted':
-        await handleSubscriptionDeleted(event);
-        break;
-
-      // Eventos de facturación
+      // Eventos de facturación y pagos
       case 'invoice.paid':
         await handleInvoicePaid(event);
         break;
@@ -81,9 +140,9 @@ exports.handleStripeWebhook = async (req, res) => {
         await handleInvoicePaymentFailed(event);
         break;
 
-      // Eventos de cliente
-      case 'customer.created':
-        logger.info(`Cliente creado: ${event.data.object.id}`);
+      case 'charge.failed':
+        logger.warn(`[CHARGE_FAILED] Cargo fallido: ${event.data.object.id}`);
+        // Podemos agregar lógica específica si es necesario
         break;
 
       case 'customer.updated':
@@ -116,8 +175,13 @@ exports.handleStripeWebhook = async (req, res) => {
 };
 
 /**
- * Maneja el evento checkout.session.completed
+ * NOTA: Los siguientes handlers están comentados porque este microservicio
+ * solo maneja eventos de pagos. La gestión de suscripciones se hace en el
+ * servidor principal.
  */
+
+/*
+// Handler comentado - No usado en microservicio de pagos
 async function handleCheckoutSessionCompleted(event) {
   const session = event.data.object;
 
@@ -291,9 +355,22 @@ async function handleSubscriptionDeleted(event) {
   if (user) {
     const gracePeriodEnd = new Date(Date.now() + 15 * 24 * 60 * 60
       * 1000).toLocaleDateString('es-ES');
+    
+    // Verificar que items existe antes de acceder
+    let previousPlan = 'Desconocido';
+    if (subscription.items && subscription.items.data && subscription.items.data[0] && subscription.items.data[0].price) {
+      previousPlan = getPlanNameFromPriceId(subscription.items.data[0].price.id);
+    } else {
+      logger.warn('subscription.items no está definido en el evento deleted');
+      // Intentar obtener el plan de la base de datos
+      const dbSubscription = await Subscription.findOne({ stripeSubscriptionId: subscription.id });
+      if (dbSubscription) {
+        previousPlan = dbSubscription.plan || 'Desconocido';
+      }
+    }
+    
     await emailService.sendSubscriptionEmail(user, 'canceled', {
-      previousPlan:
-        getPlanNameFromPriceId(subscription.items.data[0].price.id),
+      previousPlan,
       immediate: true,
       gracePeriodEnd
     });
@@ -310,23 +387,79 @@ async function handleInvoicePaid(event) {
   logger.info(`Monto: ${invoice.amount_paid / 100} 
   ${invoice.currency.toUpperCase()}`);
 
-  // Si la factura está asociada a una suscripción, actualizar el 
-  estado
+  // Si la factura está asociada a una suscripción, actualizar el estado
   if (invoice.subscription) {
+    logger.info(`Factura asociada a suscripción: ${invoice.subscription}`);
+    
+    // Los webhooks de invoice normalmente incluyen información limitada sobre la suscripción
+    // En producción, Stripe puede expandir automáticamente ciertos campos
+    // Para desarrollo, trabajamos con los datos que tenemos
+    
     try {
-      const subscription = await
-        stripe.subscriptions.retrieve(invoice.subscription);
-
-      // Si la suscripción estaba incompleta y ahora está activa
-      if (subscription.status === 'active') {
-        logger.info(`Actualizando suscripción ${subscription.id} a
-   estado activo`);
-
-        await
-          subscriptionService.handleSubscriptionUpdated(subscription);
+      // Buscar la suscripción en nuestra base de datos
+      const dbSubscription = await Subscription.findOne({ 
+        stripeSubscriptionId: invoice.subscription 
+      });
+      
+      if (dbSubscription) {
+        // IMPORTANTE: Solo procesar si es una recuperación de pago fallido
+        if (dbSubscription.paymentFailures && dbSubscription.paymentFailures.count > 0) {
+          logger.info(`[PAYMENT_RECOVERY] Pago recuperado para suscripción: ${invoice.subscription}`);
+          
+          // Verificar que la suscripción no esté cancelada
+          if (dbSubscription.status === 'canceled') {
+            logger.warn(`[SKIP] Suscripción ${invoice.subscription} está cancelada - ignorando recuperación`);
+            return;
+          }
+          
+          // Resetear contadores de fallo
+          dbSubscription.paymentFailures.count = 0;
+          dbSubscription.paymentFailures.lastFailedAt = null;
+          dbSubscription.paymentFailures.lastFailureReason = null;
+          dbSubscription.paymentFailures.lastFailureCode = null;
+          
+          // Solo actualizar accountStatus, NO tocar status ni plan
+          if (dbSubscription.accountStatus !== 'active') {
+            const previousStatus = dbSubscription.accountStatus;
+            dbSubscription.accountStatus = 'active';
+            
+            // Agregar al historial
+            dbSubscription.statusHistory.push({
+              status: 'payment_recovered',
+              changedAt: new Date(),
+              reason: `Pago recuperado después de ${previousStatus}`,
+              triggeredBy: 'payment_webhook'
+            });
+            
+            // Resetear estado de recuperación
+            if (dbSubscription.paymentRecovery) {
+              dbSubscription.paymentRecovery.inRecovery = false;
+              dbSubscription.paymentRecovery.recoveredAt = new Date();
+            }
+          }
+          
+          await dbSubscription.save();
+          logger.info(`Suscripción actualizada a estado activo`);
+          
+          // Enviar email de recuperación de pago
+          const user = await dbSubscription.populate('user');
+          if (user && user.user) {
+            try {
+              await emailService.sendPaymentEmail(user.user, 'paymentRecovered', {
+                planName: dbSubscription.plan || 'standard',
+                nextBillingDate: new Date(dbSubscription.currentPeriodEnd).toLocaleDateString('es-ES')
+              });
+              logger.info(`Email de recuperación de pago enviado a ${user.user.email}`);
+            } catch (emailError) {
+              logger.error('Error enviando email de recuperación:', emailError);
+            }
+          }
+        }
+      } else {
+        logger.warn(`Suscripción ${invoice.subscription} no encontrada en la base de datos`);
       }
     } catch (error) {
-      logger.error('Error actualizando suscripción desde factura pagada:', error);
+      logger.error('Error procesando pago de factura:', error);
     }
   }
 }
@@ -348,12 +481,251 @@ async function handleInvoicePaymentSucceeded(event) {
  */
 async function handleInvoicePaymentFailed(event) {
   const invoice = event.data.object;
+  const Subscription = require('../models/Subscription');
+  const User = require('../models/User');
+  const Folder = require('../models/Folder');
+  const Calculator = require('../models/Calculator');
+  const Contact = require('../models/Contact');
 
   logger.error(`Pago de factura fallido: ${invoice.id}`);
   logger.error(`Razón: ${invoice.last_payment_error?.message || 'Desconocida'}`);
 
-  // TODO: Implementar lógica para manejar pagos fallidos
-  // Por ejemplo: enviar email al usuario, marcar suscripción como en riesgo, etc.
+  try {
+    // Obtener la suscripción asociada
+    const subscription = await Subscription.findOne({ 
+      stripeSubscriptionId: invoice.subscription 
+    });
+    
+    if (!subscription) {
+      logger.error(`Subscription not found for invoice ${invoice.id}`);
+      return;
+    }
+
+    // IMPORTANTE: No procesar si la suscripción ya está cancelada
+    if (subscription.status === 'canceled') {
+      logger.info(`[SKIP] Suscripción ${invoice.subscription} ya está cancelada`);
+      return;
+    }
+    
+    // IMPORTANTE: No interferir si hay un período de gracia de downgrade activo
+    if (subscription.downgradeGracePeriod && subscription.downgradeGracePeriod.expiresAt > new Date()) {
+      logger.info(`[SKIP] Suscripción tiene período de gracia de downgrade activo hasta ${subscription.downgradeGracePeriod.expiresAt}`);
+      return;
+    }
+    
+    // Incrementar contador de fallos
+    subscription.paymentFailures.count += 1;
+    
+    // Registrar detalles del fallo
+    if (!subscription.paymentFailures.firstFailedAt) {
+      subscription.paymentFailures.firstFailedAt = new Date();
+    }
+    subscription.paymentFailures.lastFailedAt = new Date();
+    subscription.paymentFailures.lastFailureReason = invoice.last_payment_error?.message || 'Unknown error';
+    subscription.paymentFailures.lastFailureCode = invoice.last_payment_error?.code;
+    subscription.paymentFailures.nextRetryAt = invoice.next_payment_attempt ? new Date(invoice.next_payment_attempt * 1000) : null;
+
+    // Obtener usuario
+    const user = await User.findById(subscription.user);
+    
+    // Lógica basada en número de intentos fallidos
+    switch (subscription.paymentFailures.count) {
+      case 1:
+        // Primer fallo - Email informativo
+        subscription.accountStatus = 'at_risk';
+        
+        if (!subscription.paymentFailures.notificationsSent.firstWarning.sent) {
+          await emailService.sendPaymentFailedEmail(user.email, {
+            userName: user.nombre,
+            planName: getPlanNameFromPriceId(subscription.stripePriceId),
+            amount: invoice.amount_due / 100,
+            currency: invoice.currency.toUpperCase(),
+            nextRetryDate: subscription.paymentFailures.nextRetryAt,
+            failureReason: subscription.paymentFailures.lastFailureReason,
+            updatePaymentUrl: `${process.env.FRONTEND_URL}/billing/update-payment`
+          }, 'first');
+          
+          subscription.paymentFailures.notificationsSent.firstWarning = {
+            sent: true,
+            sentAt: new Date()
+          };
+        }
+        break;
+
+      case 2:
+        // Segundo fallo - Advertencia
+        if (!subscription.paymentFailures.notificationsSent.secondWarning.sent) {
+          const currentUsage = await calculateCurrentUsage(user._id);
+          
+          await emailService.sendPaymentFailedEmail(user.email, {
+            userName: user.nombre,
+            planName: getPlanNameFromPriceId(subscription.stripePriceId),
+            daysUntilSuspension: 3,
+            currentUsage,
+            updatePaymentUrl: `${process.env.FRONTEND_URL}/billing/update-payment`
+          }, 'second');
+          
+          subscription.paymentFailures.notificationsSent.secondWarning = {
+            sent: true,
+            sentAt: new Date()
+          };
+        }
+        break;
+
+      case 3:
+        // Tercer fallo - Advertencia final + Suspensión parcial
+        subscription.accountStatus = 'suspended';
+        
+        if (!subscription.paymentFailures.notificationsSent.finalWarning.sent) {
+          await emailService.sendPaymentFailedEmail(user.email, {
+            userName: user.nombre,
+            planName: getPlanNameFromPriceId(subscription.stripePriceId),
+            suspensionDate: new Date(),
+            affectedFeatures: getPremiumFeatures(subscription.plan),
+            updatePaymentUrl: `${process.env.FRONTEND_URL}/billing/update-payment`
+          }, 'final');
+          
+          subscription.paymentFailures.notificationsSent.finalWarning = {
+            sent: true,
+            sentAt: new Date()
+          };
+        }
+
+        // Suspender características premium pero mantener acceso básico
+        await suspendPremiumFeatures(user._id);
+        break;
+
+      case 4:
+      default:
+        // Cuarto fallo o más - Activar período de gracia
+        subscription.accountStatus = 'grace_period';
+        
+        // Activar período de gracia similar a una cancelación
+        subscription.downgradeGracePeriod = {
+          previousPlan: subscription.plan,
+          targetPlan: 'free',
+          expiresAt: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000), // 15 días
+          autoArchiveScheduled: true,
+          reminderSent: false,
+          reminder3DaysSent: false,
+          reminder1DaySent: false,
+          immediateCancel: false,
+          calculatedFrom: 'payment_failed'
+        };
+
+        if (!subscription.paymentFailures.notificationsSent.suspensionNotice.sent) {
+          const itemsToArchive = await calculateItemsToArchive(user._id, subscription.plan);
+          
+          await emailService.sendPaymentFailedEmail(user.email, {
+            userName: user.nombre,
+            planName: getPlanNameFromPriceId(subscription.stripePriceId),
+            gracePeriodEndDate: subscription.downgradeGracePeriod.expiresAt,
+            itemsToArchive,
+            supportEmail: process.env.SUPPORT_EMAIL || 'support@company.com'
+          }, 'suspension');
+          
+          subscription.paymentFailures.notificationsSent.suspensionNotice = {
+            sent: true,
+            sentAt: new Date()
+          };
+        }
+        break;
+    }
+
+    // Agregar al histórico
+    subscription.statusHistory.push({
+      status: subscription.accountStatus,
+      reason: `Payment failed - Attempt ${subscription.paymentFailures.count}`,
+      triggeredBy: 'webhook'
+    });
+
+    // Guardar cambios
+    await subscription.save();
+
+    // Log para monitoreo
+    logger.warn(`Payment failed for subscription ${subscription._id}`, {
+      userId: user._id,
+      attemptNumber: subscription.paymentFailures.count,
+      newStatus: subscription.accountStatus,
+      failureCode: subscription.paymentFailures.lastFailureCode
+    });
+
+  } catch (error) {
+    logger.error('Error handling payment failed webhook:', error);
+    throw error;
+  }
+}
+
+// Funciones auxiliares para manejo de pagos fallidos
+async function calculateCurrentUsage(userId) {
+  const Folder = require('../models/Folder');
+  const Calculator = require('../models/Calculator');
+  const Contact = require('../models/Contact');
+  
+  const [folders, calculators, contacts] = await Promise.all([
+    Folder.countDocuments({ userId, archived: false }),
+    Calculator.countDocuments({ userId, archived: false }),
+    Contact.countDocuments({ userId, archived: false })
+  ]);
+
+  return { folders, calculators, contacts };
+}
+
+function getPremiumFeatures(planName) {
+  const features = {
+    'standard': [
+      'Calculadoras ilimitadas',
+      'Exportación avanzada',
+      'Soporte prioritario',
+      'Carpetas vinculadas',
+      'Sistema de reservas'
+    ],
+    'premium': [
+      'Todas las características Standard',
+      'API access',
+      'Integraciones personalizadas',
+      'Análisis avanzado',
+      'Automatización de tareas'
+    ]
+  };
+  
+  return features[planName] || [];
+}
+
+async function suspendPremiumFeatures(userId) {
+  const User = require('../models/User');
+  
+  // Marcar al usuario con acceso limitado
+  await User.findByIdAndUpdate(userId, {
+    'subscription.suspended': true,
+    'subscription.suspendedAt': new Date()
+  });
+}
+
+async function calculateItemsToArchive(userId, currentPlan) {
+  const Folder = require('../models/Folder');
+  const Calculator = require('../models/Calculator');
+  const Contact = require('../models/Contact');
+  
+  // Obtener límites del plan FREE
+  const freeLimits = {
+    folders: 5,
+    calculators: 3,
+    contacts: 10
+  };
+  
+  // Contar elementos activos
+  const [activeFolders, activeCalculators, activeContacts] = await Promise.all([
+    Folder.countDocuments({ userId, archived: false }),
+    Calculator.countDocuments({ userId, archived: false }),
+    Contact.countDocuments({ userId, archived: false })
+  ]);
+  
+  return {
+    folders: Math.max(0, activeFolders - freeLimits.folders),
+    calculators: Math.max(0, activeCalculators - freeLimits.calculators),
+    contacts: Math.max(0, activeContacts - freeLimits.contacts)
+  };
 }
 
 /**
@@ -421,40 +793,4 @@ function getPlanLimits(planName) {
   return limits[planName] || limits['Gratuito'];
 }
 
-/**
- * Endpoint de prueba para desarrollo
- */
-exports.testWebhook = async (req, res) => {
-  if (process.env.NODE_ENV === 'production') {
-    return res.status(404).json({ error: 'Not found' });
-  }
-
-  try {
-    logger.info('Test webhook endpoint llamado');
-
-    // Simular un evento
-    const testEvent = {
-      id: 'evt_test_' + Date.now(),
-      type: req.body.type || 'customer.subscription.updated',
-      data: {
-        object: req.body.data || {
-          id: 'sub_test_123',
-          customer: 'cus_test_123',
-          status: 'active'
-        }
-      }
-    };
-
-    logger.info('Evento de prueba:', testEvent);
-
-    res.json({
-      success: true,
-      message: 'Test webhook procesado',
-      event: testEvent
-    });
-
-  } catch (error) {
-    logger.error('Error en test webhook:', error);
-    res.status(500).json({ error: error.message });
-  }
-};
+// La función testWebhook ya está definida arriba en la línea 15

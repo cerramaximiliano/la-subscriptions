@@ -3,6 +3,9 @@ const logger = require('../utils/logger');
 const subscriptionService =
   require('../services/subscriptionService');
 const emailService = require('../services/emailService');
+const { retryFailedWebhooks } = require('./retryFailedWebhooks');
+const { checkPaymentRecovery } = require('./checkPaymentRecovery');
+const { processGracePeriods } = require('./gracePeriodProcessor');
 
 /**
  * Configurar todas las tareas programadas
@@ -10,50 +13,38 @@ const emailService = require('../services/emailService');
 function setupScheduledTasks() {
   logger.info('⏰ Configurando tareas programadas...');
 
-  // Tarea 1: Verificar suscripciones expiradas (diariamente a las 2:00 AM)
+  // Tarea 1: Procesador unificado de períodos de gracia (diariamente a las 2:00 AM)
+  // Reemplaza las tareas anteriores de grace periods del servidor principal
   cron.schedule('0 2 * * *', async () => {
-    logger.info('===== INICIO: Verificación de suscripciones expiradas =====');
+    logger.info('===== INICIO: Procesador de Períodos de Gracia (Microservicio) =====');
     try {
-      const processedCount = await
-        subscriptionService.checkExpiredSubscriptions();
-      logger.info(`✅ Suscripciones expiradas procesadas: 
-  ${processedCount}`);
+      const result = await processGracePeriods();
+      logger.info(`✅ Procesamiento completado:
+        - Períodos vencidos: ${result.stats.archivedCount}
+        - Períodos de pago: ${result.stats.paymentGraceCount}
+        - Recordatorios: ${result.stats.remindersCount}
+        - Limpiados: ${result.stats.cleanedCount}`);
     } catch (error) {
-      logger.error('❌ Error verificando suscripciones expiradas:', error);
+      logger.error('❌ Error en procesador de períodos de gracia:', error);
     }
-    logger.info('===== FIN: Verificación de suscripciones expiradas =====');
+    logger.info('===== FIN: Procesador de Períodos de Gracia =====');
   }, {
     scheduled: true,
     timezone: process.env.TZ || 'America/Sao_Paulo'
   });
 
-  // Tarea 2: Procesar períodos de gracia vencidos (diariamente a las 2:30 AM)
-  cron.schedule('30 2 * * *', async () => {
-    logger.info('===== INICIO: Procesamiento de períodos de graciavencidos =====');
-    try {
-      const processedCount = await
-        subscriptionService.processExpiredGracePeriods();
-      logger.info(`✅ Períodos de gracia procesados: 
-  ${processedCount}`);
-    } catch (error) {
-      logger.error('❌ Error procesando períodos de gracia:', error);
-    }
-    logger.info('===== FIN: Procesamiento de períodos de gracia vencidos =====');
-  }, {
-    scheduled: true,
-    timezone: process.env.TZ || 'America/Sao_Paulo'
-  });
-
-  // Tarea 3: Enviar recordatorios de período de gracia (diariamente a las 10:00 AM)
+  // Tarea 2: Enviar recordatorios adicionales (diariamente a las 10:00 AM)
+  // Mantener por compatibilidad con recordatorios de email service
   cron.schedule('0 10 * * *', async () => {
-    logger.info('===== INICIO: Envío de recordatorios de período de gracia =====');
+    logger.info('===== INICIO: Recordatorios adicionales =====');
     try {
+      // El procesador principal ya maneja recordatorios, pero esto es un respaldo
       await emailService.sendGracePeriodReminders();
-      logger.info('✅ Recordatorios de período de gracia enviados');
+      logger.info('✅ Recordatorios adicionales enviados');
     } catch (error) {
-      logger.error('❌ Error enviando recordatorios:', error);
+      logger.error('❌ Error enviando recordatorios adicionales:', error);
     }
-    logger.info('===== FIN: Envío de recordatorios de período de gracia =====');
+    logger.info('===== FIN: Recordatorios adicionales =====');
   }, {
     scheduled: true,
     timezone: process.env.TZ || 'America/Sao_Paulo'
@@ -100,6 +91,21 @@ function setupScheduledTasks() {
     });
   }
 
+  // Tarea 7: Reintentar webhooks fallidos (cada hora)
+  cron.schedule('0 * * * *', async () => {
+    logger.info('===== INICIO: Reintento de webhooks fallidos =====');
+    try {
+      await retryFailedWebhooks();
+      logger.info('✅ Reintento de webhooks completado');
+    } catch (error) {
+      logger.error('❌ Error reintentando webhooks:', error);
+    }
+    logger.info('===== FIN: Reintento de webhooks fallidos =====');
+  }, {
+    scheduled: true,
+    timezone: process.env.TZ || 'America/Sao_Paulo'
+  });
+
   cron.schedule('0 * * * *', async () => {
     try {
       logger.info('Actualizando plan mapping...');
@@ -109,6 +115,21 @@ function setupScheduledTasks() {
     } catch (error) {
       logger.error('Error actualizando plan mapping:', error);
     }
+  });
+
+  // Tarea 8: Verificar recuperación de pagos (cada 4 horas)
+  cron.schedule('0 */4 * * *', async () => {
+    logger.info('===== INICIO: Verificación de recuperación de pagos =====');
+    try {
+      await checkPaymentRecovery();
+      logger.info('✅ Verificación de recuperación de pagos completada');
+    } catch (error) {
+      logger.error('❌ Error verificando recuperación de pagos:', error);
+    }
+    logger.info('===== FIN: Verificación de recuperación de pagos =====');
+  }, {
+    scheduled: true,
+    timezone: process.env.TZ || 'America/Sao_Paulo'
   });
 
   logger.info('✅ Todas las tareas programadas configuradas exitosamente');
@@ -277,15 +298,11 @@ async function performHealthCheck() {
 function logScheduledTasks() {
   const tasks = [
     {
-      name: 'Verificar suscripciones expiradas', schedule:
+      name: 'Procesador de Períodos de Gracia (Unificado)', schedule:
         'Diariamente a las 2:00 AM'
     },
     {
-      name: 'Procesar períodos de gracia vencidos', schedule:
-        'Diariamente a las 2:30 AM'
-    },
-    {
-      name: 'Enviar recordatorios de período de gracia', schedule:
+      name: 'Recordatorios adicionales', schedule:
         'Diariamente a las 10:00 AM'
     },
     {
@@ -296,6 +313,15 @@ function logScheduledTasks() {
       name: 'Health check', schedule:
         process.env.ENABLE_HEALTH_CHECK === 'true' ? 'Cada 5 minutos' :
           'Deshabilitado'
+    },
+    {
+      name: 'Reintentar webhooks fallidos', schedule: 'Cada hora'
+    },
+    {
+      name: 'Actualizar plan mapping', schedule: 'Cada hora'
+    },
+    {
+      name: 'Verificar recuperación de pagos', schedule: 'Cada 4 horas'
     }
   ];
 
@@ -313,6 +339,9 @@ async function runTaskManually(taskName) {
 
   try {
     switch (taskName) {
+      case 'processGracePeriods':
+        await processGracePeriods();
+        break;
       case 'checkExpiredSubscriptions':
         await subscriptionService.checkExpiredSubscriptions();
         break;
@@ -330,6 +359,12 @@ async function runTaskManually(taskName) {
         break;
       case 'healthCheck':
         await performHealthCheck();
+        break;
+      case 'retryWebhooks':
+        await retryFailedWebhooks();
+        break;
+      case 'checkPaymentRecovery':
+        await checkPaymentRecovery();
         break;
       default:
         throw new Error(`Tarea desconocida: ${taskName}`);
@@ -357,12 +392,15 @@ if (require.main === module) {
   if (!taskName) {
     console.log('Uso: node scheduleTasks.js <nombreTarea>');
     console.log('Tareas disponibles:');
+    console.log('  - processGracePeriods (NUEVO - Procesador unificado)');
     console.log('  - checkExpiredSubscriptions');
     console.log('  - processExpiredGracePeriods');
     console.log('  - sendGracePeriodReminders');
     console.log('  - syncWithStripe');
     console.log('  - cleanupOldLogs');
     console.log('  - healthCheck');
+    console.log('  - retryWebhooks');
+    console.log('  - checkPaymentRecovery');
     process.exit(1);
   }
 

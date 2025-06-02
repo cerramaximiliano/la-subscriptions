@@ -88,6 +88,60 @@ const SubscriptionSchema = new Schema({
     immediateCancel: { type: Boolean, default: false },
     calculatedFrom: String
   },
+  // Campos para manejo de pagos fallidos
+  paymentFailures: {
+    count: { 
+      type: Number, 
+      default: 0 
+    },
+    firstFailedAt: Date,
+    lastFailedAt: Date,
+    lastFailureReason: String,
+    lastFailureCode: String,
+    nextRetryAt: Date,
+    notificationsSent: {
+      firstWarning: { 
+        sent: { type: Boolean, default: false },
+        sentAt: Date
+      },
+      secondWarning: { 
+        sent: { type: Boolean, default: false },
+        sentAt: Date
+      },
+      finalWarning: { 
+        sent: { type: Boolean, default: false },
+        sentAt: Date
+      },
+      suspensionNotice: { 
+        sent: { type: Boolean, default: false },
+        sentAt: Date
+      }
+    }
+  },
+  
+  accountStatus: {
+    type: String,
+    enum: ['active', 'at_risk', 'suspended', 'grace_period'],
+    default: 'active'
+  },
+  
+  paymentRecovery: {
+    inRecovery: { type: Boolean, default: false },
+    recoveryStartedAt: Date,
+    recoveryEndedAt: Date,
+    lastRecoveryAttempt: Date,
+    recoveryAttempts: { type: Number, default: 0 },
+    recoveredAt: Date
+  },
+  
+  // Histórico de estados de cuenta
+  statusHistory: [{
+    status: String,
+    changedAt: { type: Date, default: Date.now },
+    reason: String,
+    triggeredBy: String // 'system', 'admin', 'user', 'webhook'
+  }],
+  
   // Límites y funcionalidades según el plan
   limits: {
     maxFolders: {

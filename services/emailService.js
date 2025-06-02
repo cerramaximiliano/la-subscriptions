@@ -460,6 +460,317 @@ const emailTemplates = {
       </body>
       </html>
     `
+  },
+  
+  // Plantillas para pagos fallidos
+  paymentFailedFirst: {
+    subject: '⚠️ Problema con tu pago - {{planName}}',
+    html: (data) => `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #FFA500; color: white; padding: 20px; text-align: center; }
+          .content { padding: 20px; background-color: #f4f4f4; }
+          .info { background-color: #f8f9fa; border: 1px solid #dee2e6; padding: 20px; border-radius: 8px; margin: 20px 0; }
+          .button { display: inline-block; padding: 12px 24px; background-color: #007bff; color: white; text-decoration: none; border-radius: 4px; }
+          .footer { text-align: center; padding: 20px; font-size: 12px; color: #666; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Problema con tu pago</h1>
+          </div>
+          <div class="content">
+            <p>Hola ${data.userName},</p>
+            
+            <p>Tuvimos un problema al procesar tu pago de <strong>${data.amount} ${data.currency}</strong> 
+            para tu suscripción ${data.planName.replace('{{planName}}', data.planName)}.</p>
+            
+            <div class="info">
+              <p><strong>Razón del fallo:</strong> ${data.failureReason}</p>
+              <p><strong>Próximo intento:</strong> ${data.nextRetryDate ? new Date(data.nextRetryDate).toLocaleDateString('es-ES') : 'No programado'}</p>
+            </div>
+            
+            <p>No te preocupes, intentaremos procesar el pago nuevamente automáticamente. 
+            Sin embargo, puedes actualizar tu método de pago ahora para evitar interrupciones:</p>
+            
+            <p style="text-align: center; margin-top: 30px;">
+              <a href="${data.updatePaymentUrl}" class="button">
+                Actualizar método de pago
+              </a>
+            </p>
+            
+            <p style="color: #6c757d; font-size: 14px; margin-top: 30px;">
+              Tu acceso continúa activo mientras resolvemos este problema.
+            </p>
+          </div>
+          <div class="footer">
+            <p>Si tienes alguna pregunta, responde a este email.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `
+  },
+  
+  paymentFailedSecond: {
+    subject: '⚠️ Segundo intento de pago fallido - Acción requerida',
+    html: (data) => `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #dc3545; color: white; padding: 20px; text-align: center; }
+          .content { padding: 20px; background-color: #f4f4f4; }
+          .warning { background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 20px; border-radius: 8px; margin: 20px 0; }
+          .button { display: inline-block; padding: 12px 24px; background-color: #dc3545; color: white; text-decoration: none; border-radius: 4px; }
+          .footer { text-align: center; padding: 20px; font-size: 12px; color: #666; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Segundo intento fallido</h1>
+          </div>
+          <div class="content">
+            <p>Hola ${data.userName},</p>
+            
+            <p style="color: #dc3545;">No hemos podido procesar tu pago por segunda vez.</p>
+            
+            <div class="warning">
+              <h3 style="color: #856404; margin-top: 0;">
+                ⏰ Tienes ${data.daysUntilSuspension} días para actualizar tu método de pago
+              </h3>
+              <p>Después de este período, algunas características premium serán suspendidas.</p>
+            </div>
+            
+            <h3>Tu uso actual:</h3>
+            <ul>
+              <li>Carpetas: ${data.currentUsage.folders}</li>
+              <li>Calculadoras: ${data.currentUsage.calculators}</li>
+              <li>Contactos: ${data.currentUsage.contacts}</li>
+            </ul>
+            
+            <p style="text-align: center; margin-top: 30px;">
+              <a href="${data.updatePaymentUrl}" class="button">
+                Actualizar método de pago ahora
+              </a>
+            </p>
+            
+            <p style="margin-top: 30px;">
+              <strong>¿Necesitas ayuda?</strong><br>
+              Responde a este email y nuestro equipo te asistirá inmediatamente.
+            </p>
+          </div>
+          <div class="footer">
+            <p>No pierdas acceso a tus características premium.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `
+  },
+  
+  paymentFailedFinal: {
+    subject: '🚨 Último aviso - Características premium suspendidas',
+    html: (data) => `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #721c24; color: white; padding: 20px; text-align: center; }
+          .content { padding: 20px; background-color: #f4f4f4; }
+          .alert { background-color: #f8d7da; border: 1px solid #f5c6cb; padding: 20px; border-radius: 8px; margin: 20px 0; }
+          .button { display: inline-block; padding: 12px 24px; background-color: #28a745; color: white; text-decoration: none; border-radius: 4px; }
+          .footer { text-align: center; padding: 20px; font-size: 12px; color: #666; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Características suspendidas</h1>
+          </div>
+          <div class="content">
+            <p>Hola ${data.userName},</p>
+            
+            <p style="color: #dc3545; font-weight: bold;">
+              No hemos podido procesar tu pago después de múltiples intentos.
+            </p>
+            
+            <div class="alert">
+              <h3 style="color: #721c24; margin-top: 0;">
+                Características suspendidas desde ${new Date(data.suspensionDate).toLocaleDateString('es-ES')}:
+              </h3>
+              <ul style="color: #721c24;">
+                ${data.affectedFeatures.map(feature => `<li>${feature}</li>`).join('')}
+              </ul>
+            </div>
+            
+            <p><strong>Importante:</strong> Tus datos están seguros y podrás acceder a ellos 
+            con las limitaciones del plan gratuito. Para recuperar el acceso completo, 
+            actualiza tu método de pago:</p>
+            
+            <p style="text-align: center; margin-top: 30px;">
+              <a href="${data.updatePaymentUrl}" class="button">
+                Reactivar mi suscripción
+              </a>
+            </p>
+            
+            <p style="color: #6c757d; font-size: 14px; margin-top: 30px;">
+              Si decides no continuar, tendrás 15 días para descargar tus datos antes 
+              de que algunos elementos sean archivados automáticamente.
+            </p>
+          </div>
+          <div class="footer">
+            <p>Estamos aquí para ayudarte. Contacta a nuestro equipo de soporte si necesitas asistencia.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `
+  },
+  
+  paymentFailedSuspension: {
+    subject: '📋 Período de gracia activado - 15 días para ajustar tus recursos',
+    html: (data) => `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #6c757d; color: white; padding: 20px; text-align: center; }
+          .content { padding: 20px; background-color: #f4f4f4; }
+          .info { background-color: #e9ecef; padding: 20px; border-radius: 8px; margin: 20px 0; }
+          .table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+          .table th, .table td { text-align: left; padding: 8px; border-bottom: 1px solid #ddd; }
+          .table th { border-bottom: 2px solid #ddd; }
+          .button { display: inline-block; padding: 12px 24px; background-color: #007bff; color: white; text-decoration: none; border-radius: 4px; }
+          .footer { text-align: center; padding: 20px; font-size: 12px; color: #666; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Período de gracia activado</h1>
+          </div>
+          <div class="content">
+            <p>Hola ${data.userName},</p>
+            
+            <p>Debido a los problemas continuos con el pago de tu suscripción ${data.planName}, 
+            hemos activado un período de gracia de 15 días.</p>
+            
+            <div class="info">
+              <h3 style="margin-top: 0;">¿Qué significa esto?</h3>
+              <ul>
+                <li>Tu plan cambiará a FREE el <strong>${new Date(data.gracePeriodEndDate).toLocaleDateString('es-ES')}</strong></li>
+                <li>Tienes 15 días para ajustar tus recursos a los límites del plan gratuito</li>
+                <li>Después de esta fecha, archivaremos automáticamente el contenido excedente</li>
+              </ul>
+            </div>
+            
+            <h3>Elementos que serán archivados:</h3>
+            <table class="table">
+              <tr>
+                <th>Tipo</th>
+                <th style="text-align: right;">A archivar</th>
+              </tr>
+              <tr>
+                <td>Carpetas</td>
+                <td style="text-align: right;">${data.itemsToArchive.folders}</td>
+              </tr>
+              <tr>
+                <td>Calculadoras</td>
+                <td style="text-align: right;">${data.itemsToArchive.calculators}</td>
+              </tr>
+              <tr>
+                <td>Contactos</td>
+                <td style="text-align: right;">${data.itemsToArchive.contacts}</td>
+              </tr>
+            </table>
+            
+            <div style="margin: 30px 0;">
+              <p><strong>¿Prefieres mantener tu plan actual?</strong></p>
+              <p style="text-align: center;">
+                <a href="${data.updatePaymentUrl}" class="button">
+                  Actualizar método de pago
+                </a>
+              </p>
+            </div>
+            
+            <p style="color: #6c757d; font-size: 14px;">
+              Si necesitas ayuda o tienes alguna pregunta, no dudes en contactarnos en 
+              <a href="mailto:${data.supportEmail}">${data.supportEmail}</a>
+            </p>
+          </div>
+          <div class="footer">
+            <p>Gracias por tu comprensión.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `
+  },
+  
+  paymentRecovered: {
+    subject: '✅ Pago procesado exitosamente - Suscripción reactivada',
+    html: (data) => `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #28a745; color: white; padding: 20px; text-align: center; }
+          .content { padding: 20px; background-color: #f4f4f4; }
+          .success { background-color: #d4edda; border: 1px solid #c3e6cb; padding: 20px; border-radius: 8px; margin: 20px 0; }
+          .button { display: inline-block; padding: 12px 24px; background-color: #007bff; color: white; text-decoration: none; border-radius: 4px; }
+          .footer { text-align: center; padding: 20px; font-size: 12px; color: #666; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>¡Pago procesado!</h1>
+          </div>
+          <div class="content">
+            <p>Hola ${data.userName},</p>
+            
+            <p>¡Excelentes noticias! Hemos procesado exitosamente tu pago y tu suscripción 
+            al plan <strong>${data.planName}</strong> ha sido reactivada.</p>
+            
+            <div class="success">
+              <h3 style="color: #155724; margin-top: 0;">✅ Todo está en orden</h3>
+              <ul>
+                <li>Tu acceso completo ha sido restaurado</li>
+                <li>Todas las características premium están activas</li>
+                <li>No se requiere ninguna acción adicional</li>
+              </ul>
+            </div>
+            
+            <p>Gracias por resolver este problema rápidamente. Apreciamos tu confianza en nuestro servicio.</p>
+            
+            <p style="text-align: center; margin-top: 30px;">
+              <a href="${process.env.FRONTEND_URL}/dashboard" class="button">
+                Ir al Dashboard
+              </a>
+            </p>
+          </div>
+          <div class="footer">
+            <p>Gracias por continuar con nosotros.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `
   }
 };
 
@@ -558,6 +869,44 @@ exports.sendSubscriptionEmail = async (user, event, additionalData = {}) => {
   } catch (error) {
     logger.error(`Error enviando email de suscripción: ${error.message}`);
     // No lanzar error para no interrumpir el flujo principal
+  }
+};
+
+/**
+ * Envía email de pago fallido
+ */
+exports.sendPaymentFailedEmail = async (to, data, type) => {
+  try {
+    const templateMap = {
+      'first': 'paymentFailedFirst',
+      'second': 'paymentFailedSecond',
+      'final': 'paymentFailedFinal',
+      'suspension': 'paymentFailedSuspension'
+    };
+
+    const templateName = templateMap[type];
+    if (!templateName) {
+      throw new Error(`Tipo de email de pago fallido no válido: ${type}`);
+    }
+
+    await this.sendEmail(to, templateName, data);
+    logger.info(`Email de pago fallido tipo '${type}' enviado a ${to}`);
+  } catch (error) {
+    logger.error(`Error enviando email de pago fallido: ${error.message}`);
+    throw error;
+  }
+};
+
+/**
+ * Envía email de pago recuperado
+ */
+exports.sendPaymentRecoveredEmail = async (to, data) => {
+  try {
+    await this.sendEmail(to, 'paymentRecovered', data);
+    logger.info(`Email de pago recuperado enviado a ${to}`);
+  } catch (error) {
+    logger.error(`Error enviando email de pago recuperado: ${error.message}`);
+    throw error;
   }
 };
 

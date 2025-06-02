@@ -25,7 +25,7 @@ app.use(cors({
 
 // Middleware para parsear JSON (excepto para webhook de Stripe)
 app.use((req, res, next) => {
-  if (req.originalUrl === '/api/webhook') {
+  if (req.originalUrl === '/api/webhook' || req.originalUrl === '/api/webhook/stripe') {
     // Skip JSON parsing for Stripe webhook
     next();
   } else {
@@ -86,56 +86,56 @@ const initializeApp = async () => {
     app.use('/api', webhookRoutes);
 
     logger.info('✅ Routes configured successfully');
+    
+    // Manejo de errores 404 - DEBE ir después de las rutas
+    app.use((req, res) => {
+      res.status(404).json({
+        error: 'Not Found',
+        message: `Cannot ${req.method} ${req.originalUrl}`,
+        timestamp: new Date()
+      });
+    });
+
+    // Middleware global de manejo de errores
+    app.use((err, req, res, next) => {
+      logger.error('Global error handler:', err);
+
+      // Error de Stripe
+      if (err.type === 'StripeError') {
+        return res.status(400).json({
+          error: 'Stripe Error',
+          message: err.message,
+          code: err.code
+        });
+      }
+
+      // Error de validación de Mongoose
+      if (err.name === 'ValidationError') {
+        return res.status(400).json({
+          error: 'Validation Error',
+          message: err.message,
+          errors: err.errors
+        });
+      }
+
+      // Error genérico
+      res.status(err.status || 500).json({
+        error: 'Internal Server Error',
+        message: process.env.NODE_ENV === 'production'
+          ? 'An error occurred processing your request'
+          : err.message,
+        ...(process.env.NODE_ENV !== 'production' && {
+          stack: err.stack
+        })
+      });
+    });
+    
     logger.info('✅ App initialized successfully');
   } catch (error) {
     logger.error('❌ Error initializing app:', error);
     process.exit(1);
   }
 };
-
-// Manejo de errores 404
-app.use((req, res) => {
-  res.status(404).json({
-    error: 'Not Found',
-    message: `Cannot ${req.method} ${req.originalUrl}`,
-    timestamp: new Date()
-  });
-});
-
-// Middleware global de manejo de errores
-app.use((err, req, res, next) => {
-  logger.error('Global error handler:', err);
-
-  // Error de Stripe
-  if (err.type === 'StripeError') {
-    return res.status(400).json({
-      error: 'Stripe Error',
-      message: err.message,
-      code: err.code
-    });
-  }
-
-  // Error de validación de Mongoose
-  if (err.name === 'ValidationError') {
-    return res.status(400).json({
-      error: 'Validation Error',
-      message: err.message,
-      errors: err.errors
-    });
-  }
-
-  // Error genérico
-  res.status(err.status || 500).json({
-    error: 'Internal Server Error',
-    message: process.env.NODE_ENV === 'production'
-      ? 'An error occurred processing your request'
-      : err.message,
-    ...(process.env.NODE_ENV !== 'production' && {
-      stack:
-        err.stack
-    })
-  });
-});
 
 // Inicializar la aplicación
 initializeApp();
