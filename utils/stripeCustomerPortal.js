@@ -41,23 +41,40 @@ async function generateCustomerPortalUrl(customerId, returnUrl) {
  */
 async function generateUpdatePaymentUrl(customerId, returnUrl) {
   try {
-    const session = await stripe.billingPortal.sessions.create({
-      customer: customerId,
-      return_url: returnUrl || `${process.env.BASE_URL}/billing/success`,
-      // Ir directamente a la sección de métodos de pago
-      flow_data: {
-        type: 'payment_method_update',
-        payment_method_update: {
-          subscription: 'latest' // Actualizar el método de pago de la última suscripción
+    // Primero intentar con flow_data (no todas las versiones lo soportan)
+    try {
+      const session = await stripe.billingPortal.sessions.create({
+        customer: customerId,
+        return_url: returnUrl || `${process.env.BASE_URL}/billing/success`,
+        // Ir directamente a la sección de métodos de pago
+        flow_data: {
+          type: 'payment_method_update',
+          payment_method_update: {
+            subscription: 'latest' // Actualizar el método de pago de la última suscripción
+          }
         }
-      }
-    });
-
-    return session.url;
+      });
+      
+      logger.info(`URL de actualización de pago generada con flow_data: ${session.url}`);
+      return session.url;
+    } catch (flowError) {
+      // Si flow_data no está soportado, crear sesión normal
+      logger.info('flow_data no soportado, usando portal estándar');
+      const session = await stripe.billingPortal.sessions.create({
+        customer: customerId,
+        return_url: returnUrl || `${process.env.BASE_URL}/billing/success`
+      });
+      
+      logger.info(`URL del portal estándar generada: ${session.url}`);
+      return session.url;
+    }
   } catch (error) {
-    logger.error('Error creando URL de actualización de pago:', error);
-    // Fallback a URL genérica del portal
-    return generateCustomerPortalUrl(customerId, returnUrl);
+    logger.error('Error crítico creando portal de Stripe:', error);
+    // Si todo falla, generar URL manual del portal
+    // Esta es la URL estándar del portal, pero el cliente necesitará autenticarse
+    const portalUrl = `https://billing.stripe.com/p/login/${customerId}`;
+    logger.warn(`Usando URL manual del portal: ${portalUrl}`);
+    return portalUrl;
   }
 }
 

@@ -547,17 +547,10 @@ async function handleInvoicePaymentFailed(event) {
         
         if (!subscription.paymentFailures.notificationsSent.firstWarning.sent) {
           // Generar URL dinámica del Customer Portal de Stripe
-          let updatePaymentUrl;
-          try {
-            updatePaymentUrl = await generateUpdatePaymentUrl(
-              subscription.stripeCustomerId,
-              `${process.env.BASE_URL}/billing/payment-updated`
-            );
-          } catch (error) {
-            logger.error('Error generando URL de portal:', error);
-            // Fallback a URL del frontend
-            updatePaymentUrl = `${process.env.BASE_URL}/billing/update-payment`;
-          }
+          const updatePaymentUrl = await generateUpdatePaymentUrl(
+            subscription.stripeCustomerId,
+            `${process.env.BASE_URL}/billing/payment-updated`
+          );
 
           await emailService.sendPaymentFailedEmail(user.email, {
             userName: user.firstName || user.name || user.email.split('@')[0],
@@ -589,7 +582,7 @@ async function handleInvoicePaymentFailed(event) {
             updatePaymentUrl: await generateUpdatePaymentUrl(
               subscription.stripeCustomerId,
               `${process.env.BASE_URL}/billing/payment-updated`
-            ).catch(() => `${process.env.BASE_URL}/billing/update-payment`)
+            )
           }, 'second');
           
           subscription.paymentFailures.notificationsSent.secondWarning = {
@@ -612,7 +605,7 @@ async function handleInvoicePaymentFailed(event) {
             updatePaymentUrl: await generateUpdatePaymentUrl(
               subscription.stripeCustomerId,
               `${process.env.BASE_URL}/billing/payment-updated`
-            ).catch(() => `${process.env.BASE_URL}/billing/update-payment`)
+            )
           }, 'final');
           
           subscription.paymentFailures.notificationsSent.finalWarning = {
