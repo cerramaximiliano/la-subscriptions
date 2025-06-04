@@ -205,7 +205,7 @@ AWS_REGION=sa-east-1
 EMAIL_MARKETING_DEFAULT_SENDER=noreply@tuapp.com
 
 # URLs
-FRONTEND_URL=http://localhost:3000
+BASE_URL=http://localhost:3000
 BASE_URL=https://www.lawanalytics.app
 ```
 

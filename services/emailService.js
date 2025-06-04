@@ -73,7 +73,7 @@ const emailTemplates = {
               </ul>
               <p>Tu próxima fecha de facturación es: <strong>${data.nextBillingDate}</strong></p>
               <p style="text-align: center; margin-top: 30px;">
-                <a href="${process.env.FRONTEND_URL}/dashboard" class="button">Ir al Dashboard</a>
+                <a href="${process.env.BASE_URL}/dashboard" class="button">Ir al Dashboard</a>
               </p>
             </div>
             <div class="footer">
@@ -127,7 +127,7 @@ const emailTemplates = {
               </ul>
               
               <p style="text-align: center; margin-top: 30px;">
-                <a href="${process.env.FRONTEND_URL}/subscription" class="button">Gestionar Suscripción</a>
+                <a href="${process.env.BASE_URL}/subscription" class="button">Gestionar Suscripción</a>
               </p>
             </div>
             <div class="footer">
@@ -185,7 +185,7 @@ const emailTemplates = {
               ` : ''}
               
               <p style="text-align: center; margin-top: 30px;">
-                <a href="${process.env.FRONTEND_URL}/subscription" class="button">Reactivar Suscripción</a>
+                <a href="${process.env.BASE_URL}/subscription" class="button">Reactivar Suscripción</a>
               </p>
             </div>
             <div class="footer">
@@ -263,7 +263,7 @@ const emailTemplates = {
             </div>
             
             <p style="text-align: center; margin-top: 30px;">
-              <a href="${process.env.FRONTEND_URL}/subscription" 
+              <a href="${process.env.BASE_URL}/subscription" 
   class="button">Actualizar Plan</a>
             </p>
           </div>
@@ -308,7 +308,7 @@ const emailTemplates = {
             <p>Puedes cancelar este cambio en cualquier momento antes del ${data.cancelDate} desde tu panel de control.</p>
             
             <p style="text-align: center; margin-top: 30px;">
-              <a href="${process.env.FRONTEND_URL}/subscription" class="button">Gestionar Suscripción</a>
+              <a href="${process.env.BASE_URL}/subscription" class="button">Gestionar Suscripción</a>
             </p>
           </div>
         </div>
@@ -354,7 +354,7 @@ const emailTemplates = {
   automáticamente.</p>
             
             <p style="text-align: center; margin-top: 30px;">
-              <a href="${process.env.FRONTEND_URL}/subscription" class="button">Reactivar Suscripción</a>
+              <a href="${process.env.BASE_URL}/subscription" class="button">Reactivar Suscripción</a>
             </p>
           </div>
           <div class="footer">
@@ -437,7 +437,7 @@ const emailTemplates = {
             </div>
             
             <p style="text-align: center; margin-top: 30px;">
-              <a href="${process.env.FRONTEND_URL}/subscription" class="button">Gestionar 
+              <a href="${process.env.BASE_URL}/subscription" class="button">Gestionar 
   Datos</a>
             </p>
           </div>
@@ -482,7 +482,7 @@ const emailTemplates = {
   hasta los nuevos límites.</p>
             
             <p style="text-align: center; margin-top: 30px;">
-              <a href="${process.env.FRONTEND_URL}/dashboard" class="button">Ir al 
+              <a href="${process.env.BASE_URL}/dashboard" class="button">Ir al 
   Dashboard</a>
             </p>
           </div>
@@ -515,7 +515,7 @@ const emailTemplates = {
             <h1>Problema con tu pago</h1>
           </div>
           <div class="content">
-            <p>Hola ${data.userName},</p>
+            <p>Hola ${data.userName || data.userEmail?.split('@')[0] || 'Usuario'},</p>
             
             <p>Tuvimos un problema al procesar tu pago de <strong>${data.amount} ${data.currency}</strong> 
             para tu suscripción ${data.planName.replace('{{planName}}', data.planName)}.</p>
@@ -569,7 +569,7 @@ const emailTemplates = {
             <h1>Segundo intento fallido</h1>
           </div>
           <div class="content">
-            <p>Hola ${data.userName},</p>
+            <p>Hola ${data.userName || data.userEmail?.split('@')[0] || 'Usuario'},</p>
             
             <p style="color: #dc3545;">No hemos podido procesar tu pago por segunda vez.</p>
             
@@ -629,7 +629,7 @@ const emailTemplates = {
             <h1>Características suspendidas</h1>
           </div>
           <div class="content">
-            <p>Hola ${data.userName},</p>
+            <p>Hola ${data.userName || data.userEmail?.split('@')[0] || 'Usuario'},</p>
             
             <p style="color: #dc3545; font-weight: bold;">
               No hemos podido procesar tu pago después de múltiples intentos.
@@ -693,7 +693,7 @@ const emailTemplates = {
             <h1>Período de gracia activado</h1>
           </div>
           <div class="content">
-            <p>Hola ${data.userName},</p>
+            <p>Hola ${data.userName || data.userEmail?.split('@')[0] || 'Usuario'},</p>
             
             <p>Debido a los problemas continuos con el pago de tu suscripción ${data.planName}, 
             hemos activado un período de gracia de 15 días.</p>
@@ -772,7 +772,7 @@ const emailTemplates = {
             <h1>¡Pago procesado!</h1>
           </div>
           <div class="content">
-            <p>Hola ${data.userName},</p>
+            <p>Hola ${data.userName || data.userEmail?.split('@')[0] || 'Usuario'},</p>
             
             <p>¡Excelentes noticias! Hemos procesado exitosamente tu pago y tu suscripción 
             al plan <strong>${data.planName}</strong> ha sido reactivada.</p>
@@ -789,7 +789,7 @@ const emailTemplates = {
             <p>Gracias por resolver este problema rápidamente. Apreciamos tu confianza en nuestro servicio.</p>
             
             <p style="text-align: center; margin-top: 30px;">
-              <a href="${process.env.FRONTEND_URL}/dashboard" class="button">
+              <a href="${process.env.BASE_URL}/dashboard" class="button">
                 Ir al Dashboard
               </a>
             </p>
@@ -884,7 +884,7 @@ exports.sendEmail = async (to, templateName, data) => {
 exports.sendSubscriptionEmail = async (user, event, additionalData = {}) => {
   try {
     const data = {
-      userName: user.firstName || user.email.split('@')[0],
+      userName: user.firstName || user.name || user.email.split('@')[0],
       userEmail: user.email,
       ...additionalData
     };

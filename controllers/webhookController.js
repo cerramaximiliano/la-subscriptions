@@ -9,6 +9,7 @@ const subscriptionService =
   require('../services/subscriptionService');
 const emailService = require('../services/emailService');
 const Subscription = require('../models/Subscription');
+const { generateUpdatePaymentUrl } = require('../utils/stripeCustomerPortal');
 
 /**
  * Maneja webhooks de prueba (solo desarrollo o con autenticación)
@@ -545,14 +546,27 @@ async function handleInvoicePaymentFailed(event) {
         subscription.accountStatus = 'at_risk';
         
         if (!subscription.paymentFailures.notificationsSent.firstWarning.sent) {
+          // Generar URL dinámica del Customer Portal de Stripe
+          let updatePaymentUrl;
+          try {
+            updatePaymentUrl = await generateUpdatePaymentUrl(
+              subscription.stripeCustomerId,
+              `${process.env.BASE_URL}/billing/payment-updated`
+            );
+          } catch (error) {
+            logger.error('Error generando URL de portal:', error);
+            // Fallback a URL del frontend
+            updatePaymentUrl = `${process.env.BASE_URL}/billing/update-payment`;
+          }
+
           await emailService.sendPaymentFailedEmail(user.email, {
-            userName: user.nombre,
+            userName: user.firstName || user.name || user.email.split('@')[0],
             planName: getPlanNameFromPriceId(subscription.stripePriceId),
             amount: invoice.amount_due / 100,
             currency: invoice.currency.toUpperCase(),
             nextRetryDate: subscription.paymentFailures.nextRetryAt,
             failureReason: subscription.paymentFailures.lastFailureReason,
-            updatePaymentUrl: `${process.env.FRONTEND_URL}/billing/update-payment`
+            updatePaymentUrl
           }, 'first');
           
           subscription.paymentFailures.notificationsSent.firstWarning = {
@@ -568,11 +582,14 @@ async function handleInvoicePaymentFailed(event) {
           const currentUsage = await calculateCurrentUsage(user._id);
           
           await emailService.sendPaymentFailedEmail(user.email, {
-            userName: user.nombre,
+            userName: user.firstName || user.name || user.email.split('@')[0],
             planName: getPlanNameFromPriceId(subscription.stripePriceId),
             daysUntilSuspension: 3,
             currentUsage,
-            updatePaymentUrl: `${process.env.FRONTEND_URL}/billing/update-payment`
+            updatePaymentUrl: await generateUpdatePaymentUrl(
+              subscription.stripeCustomerId,
+              `${process.env.BASE_URL}/billing/payment-updated`
+            ).catch(() => `${process.env.BASE_URL}/billing/update-payment`)
           }, 'second');
           
           subscription.paymentFailures.notificationsSent.secondWarning = {
@@ -588,11 +605,14 @@ async function handleInvoicePaymentFailed(event) {
         
         if (!subscription.paymentFailures.notificationsSent.finalWarning.sent) {
           await emailService.sendPaymentFailedEmail(user.email, {
-            userName: user.nombre,
+            userName: user.firstName || user.name || user.email.split('@')[0],
             planName: getPlanNameFromPriceId(subscription.stripePriceId),
             suspensionDate: new Date(),
             affectedFeatures: getPremiumFeatures(subscription.plan),
-            updatePaymentUrl: `${process.env.FRONTEND_URL}/billing/update-payment`
+            updatePaymentUrl: await generateUpdatePaymentUrl(
+              subscription.stripeCustomerId,
+              `${process.env.BASE_URL}/billing/payment-updated`
+            ).catch(() => `${process.env.BASE_URL}/billing/update-payment`)
           }, 'final');
           
           subscription.paymentFailures.notificationsSent.finalWarning = {
@@ -627,7 +647,7 @@ async function handleInvoicePaymentFailed(event) {
           const itemsToArchive = await calculateItemsToArchive(user._id, subscription.plan);
           
           await emailService.sendPaymentFailedEmail(user.email, {
-            userName: user.nombre,
+            userName: user.firstName || user.name || user.email.split('@')[0],
             planName: getPlanNameFromPriceId(subscription.stripePriceId),
             gracePeriodEndDate: subscription.downgradeGracePeriod.expiresAt,
             itemsToArchive,

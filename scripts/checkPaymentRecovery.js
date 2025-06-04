@@ -67,7 +67,7 @@ const checkPaymentRecovery = async () => {
           // Enviar email de confirmación
           if (user) {
             await sendPaymentRecoveredEmail(user.email, {
-              userName: user.nombre,
+              userName: user.firstName || user.name || user.email.split('@')[0],
               planName: subscription.plan === 'premium' ? 'Premium' : 
                        subscription.plan === 'standard' ? 'Estándar' : 'Gratuito'
             });

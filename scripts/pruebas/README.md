@@ -75,7 +75,7 @@ ngrok http 3001
    
    # URLs
    WEBHOOK_URL_SUBSCRIPTION_API=http://localhost:5001/api/webhook  # URL del webhook (producción: usar URL real)
-   FRONTEND_URL=http://localhost:3000
+   BASE_URL=http://localhost:3000
    
    # Emails
    SUPPORT_EMAIL=support@example.com

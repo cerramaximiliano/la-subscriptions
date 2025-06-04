@@ -14,7 +14,7 @@ const app = express();
 // Configuración de CORS
 app.use(cors({
   origin: process.env.NODE_ENV === 'production'
-    ? process.env.FRONTEND_URL?.split(',') ||
+    ? process.env.BASE_URL?.split(',') ||
     ['https://server.lawanaltycs.app']
     : ['http://localhost:3000', 'http://localhost:3001'],
   credentials: true,

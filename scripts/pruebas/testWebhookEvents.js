@@ -28,7 +28,7 @@ const productionMode = args.includes('--production') || args.includes('-p');
 // Configuración
 const WEBHOOK_URL = process.env.WEBHOOK_URL_SUBSCRIPTION_API || 'http://localhost:5001/api/webhook';
 const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET_DEV || process.env.STRIPE_WEBHOOK_SECRET;
-const FRONTEND_URL = process.env.BASE_URL || 'http://localhost:3000'
+const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
 // Verificar variables de entorno requeridas
 function checkEnvironmentVariables() {
   const requiredVars = {
@@ -36,7 +36,7 @@ function checkEnvironmentVariables() {
     'STRIPE_SECRET_KEY': process.env.STRIPE_API_KEY_DEV,
     'STRIPE_WEBHOOK_SECRET (DEV o PROD)': WEBHOOK_SECRET,
     'WEBHOOK_URL': WEBHOOK_URL,
-    'FRONTEND_URL': FRONTEND_URL,
+    'BASE_URL': BASE_URL,
     'SUPPORT_EMAIL': process.env.EMAIL_MARKETING_DEFAULT_SENDER,
   };
 
