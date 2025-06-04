@@ -1,3 +1,14 @@
+  /**
+   * Rutas de Webhook para el Microservicio de Pagos
+   * 
+   * Este microservicio SOLO maneja eventos de pago:
+   * - invoice.payment_failed
+   * - invoice.payment_succeeded
+   * - invoice.paid
+   * - charge.failed
+   * 
+   * NO procesa eventos de suscripción (create, update, delete)
+   */
   const express = require('express');
   const router = express.Router();
   const webhookController = require('../controllers/webhookController');
@@ -83,11 +94,10 @@
         try {
           const { eventType } = req.params;
           const validEvents = [
-            'customer.subscription.created',
-            'customer.subscription.updated',
-            'customer.subscription.deleted',
+            'invoice.payment_failed',
+            'invoice.payment_succeeded',
             'invoice.paid',
-            'checkout.session.completed'
+            'charge.failed'
           ];
 
           if (!validEvents.includes(eventType)) {
@@ -124,14 +134,16 @@
   }
 
   /**
-   * Health check para el webhook
+   * Health check para el webhook de pagos
    */
   router.get('/webhook/health', (req, res) => {
     res.json({
       status: 'ok',
+      service: 'payment-webhook-microservice',
       webhook: 'active',
       environment: process.env.NODE_ENV,
-      timestamp: new Date()
+      timestamp: new Date(),
+      events: ['invoice.payment_failed', 'invoice.payment_succeeded', 'invoice.paid', 'charge.failed']
     });
   });
 
@@ -143,6 +155,8 @@
       const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY_TEST);
 
       res.json({
+        service: 'Payment Webhook Microservice',
+        description: 'Microservicio especializado en manejo de pagos fallidos y recuperación',
         endpoints: {
           production: process.env.WEBHOOK_URL || 'https://tu-dominio.com/api/webhook',
           development: `http://localhost:${process.env.PORT || 5000}/api/webhook`
@@ -153,18 +167,22 @@
           environment: process.env.NODE_ENV
         },
         supportedEvents: [
-          'checkout.session.completed',
+          'invoice.payment_failed',
+          'invoice.payment_succeeded',
+          'invoice.paid',
+          'charge.failed'
+        ],
+        ignoredEvents: [
           'customer.subscription.created',
           'customer.subscription.updated',
           'customer.subscription.deleted',
-          'invoice.paid',
-          'invoice.payment_succeeded',
-          'invoice.payment_failed'
+          'checkout.session.completed'
         ],
         testEndpoints: [
           'POST /api/webhook/test',
           'POST /api/webhook/simulate/:eventType'
-        ]
+        ],
+        note: 'Este microservicio NO maneja eventos de suscripción. Solo procesa eventos de pago.'
       });
     });
   }
@@ -174,40 +192,24 @@
    */
   function createSimulatedObject(eventType, customData = {}) {
     const baseObjects = {
-      'customer.subscription.created': {
-        id: 'sub_simulated_' + Date.now(),
+      'invoice.payment_failed': {
+        id: 'in_simulated_' + Date.now(),
         customer: 'cus_simulated_123',
-        status: 'active',
-        current_period_start: Math.floor(Date.now() / 1000),
-        current_period_end: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60,
-        items: {
-          data: [{
-            price: {
-              id: process.env.STRIPE_PRICE_STANDARD || 'price_standard'
-            }
-          }]
-        }
+        subscription: 'sub_simulated_123',
+        amount_due: 1999,
+        currency: 'usd',
+        status: 'open',
+        attempt_count: 1,
+        next_payment_attempt: Math.floor(Date.now() / 1000) + 3 * 24 * 60 * 60
       },
-      'customer.subscription.updated': {
-        id: 'sub_simulated_' + Date.now(),
+      'invoice.payment_succeeded': {
+        id: 'in_simulated_' + Date.now(),
         customer: 'cus_simulated_123',
-        status: 'active',
-        cancel_at_period_end: true,
-        current_period_start: Math.floor(Date.now() / 1000),
-        current_period_end: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60,
-        items: {
-          data: [{
-            price: {
-              id: process.env.STRIPE_PRICE_STANDARD || 'price_standard'
-            }
-          }]
-        }
-      },
-      'customer.subscription.deleted': {
-        id: 'sub_simulated_' + Date.now(),
-        customer: 'cus_simulated_123',
-        status: 'canceled',
-        canceled_at: Math.floor(Date.now() / 1000)
+        subscription: 'sub_simulated_123',
+        amount_paid: 1999,
+        currency: 'usd',
+        status: 'paid',
+        paid: true
       },
       'invoice.paid': {
         id: 'in_simulated_' + Date.now(),
@@ -217,12 +219,15 @@
         currency: 'usd',
         status: 'paid'
       },
-      'checkout.session.completed': {
-        id: 'cs_simulated_' + Date.now(),
-        mode: 'subscription',
-        payment_status: 'paid',
-        subscription: 'sub_simulated_123',
-        customer: 'cus_simulated_123'
+      'charge.failed': {
+        id: 'ch_simulated_' + Date.now(),
+        customer: 'cus_simulated_123',
+        amount: 1999,
+        currency: 'usd',
+        status: 'failed',
+        failure_code: 'card_declined',
+        failure_message: 'Your card was declined.',
+        invoice: 'in_simulated_123'
       }
     };
 
