@@ -114,7 +114,8 @@ STRIPE_SECRET_KEY=sk_test_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 
 # URLs
-WEBHOOK_URL=http://localhost:3000/api/webhooks/stripe
+WEBHOOK_URL_SUBSCRIPTION_API=http://localhost:5001/api/webhook  # URL del webhook (producción: usar URL real)
+FRONTEND_URL=http://localhost:3000
 
 # MongoDB
 MONGO_URI=mongodb://localhost:27017/tu-base-de-datos

@@ -74,7 +74,7 @@ ngrok http 3001
    STRIPE_WEBHOOK_SECRET_DEV=whsec_...
    
    # URLs
-   WEBHOOK_URL=http://localhost:5001/api/webhook
+   WEBHOOK_URL_SUBSCRIPTION_API=http://localhost:5001/api/webhook  # URL del webhook (producción: usar URL real)
    FRONTEND_URL=http://localhost:3000
    
    # Emails
@@ -107,6 +107,7 @@ ngrok http 3001
 Para información más detallada sobre cada fase de implementación y pruebas, consulta los documentos en la carpeta `docs/`:
 
 - **[PRUEBAS_WEBHOOKS_GUIA.md](docs/PRUEBAS_WEBHOOKS_GUIA.md)**: Guía completa de pruebas
+- **[PRUEBAS_PRODUCCION.md](docs/PRUEBAS_PRODUCCION.md)**: Guía para pruebas seguras en producción
 - **[PRUEBAS_FASE1_IDEMPOTENCIA.md](docs/PRUEBAS_FASE1_IDEMPOTENCIA.md)**: Pruebas de idempotencia
 - **[FASE2_PAGOS_FALLIDOS_IMPLEMENTACION.md](docs/FASE2_PAGOS_FALLIDOS_IMPLEMENTACION.md)**: Sistema de pagos fallidos
 - **[PLAN_IMPLEMENTACION_CASOS_CRITICOS.md](docs/PLAN_IMPLEMENTACION_CASOS_CRITICOS.md)**: Casos críticos y soluciones

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
-// Cargar variables de entorno
-require('dotenv').config();
+// Cargar variables de entorno desde la raíz del proyecto
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 
 const axios = require('axios');
 const readline = require('readline');
@@ -16,9 +17,10 @@ const args = process.argv.slice(2);
 const cliMode = args.length > 0 || !isTTY;
 const eventToSend = args[0];
 const quietMode = args.includes('--quiet') || args.includes('-q');
+const productionMode = args.includes('--production') || args.includes('-p');
 
 // Configuración
-const WEBHOOK_URL = process.env.WEBHOOK_URL || 'http://localhost:5001/api/webhook';
+const WEBHOOK_URL = process.env.WEBHOOK_URL_SUBSCRIPTION_API || 'http://localhost:5001/api/webhook';
 const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET_DEV || process.env.STRIPE_WEBHOOK_SECRET;
 
 // Crear readline solo si estamos en modo interactivo
@@ -217,22 +219,43 @@ function generateStripeSignature(payload, secret) {
 async function sendWebhookEvent(eventData) {
   try {
     const payload = JSON.stringify(eventData);
-    const signature = generateStripeSignature(payload, WEBHOOK_SECRET);
+    
+    // Detectar si estamos en modo producción (real o simulado)
+    const isProduction = productionMode || process.env.NODE_ENV === 'production';
+    const testToken = process.env.WEBHOOK_TEST_TOKEN;
+    
+    if (productionMode && !quietMode) {
+      console.log(chalk.magenta('🎭 Modo producción simulado activado'));
+    }
+    
+    let url = WEBHOOK_URL;
+    let headers = {
+      'Content-Type': 'application/json'
+    };
+    
+    if (isProduction && testToken) {
+      // En producción con token, usar el endpoint seguro
+      url = url.replace('/webhook', '/webhook/test-secure');
+      headers['x-test-auth-token'] = testToken;
+      if (!quietMode) {
+        console.log(chalk.cyan('🔐 Usando endpoint de pruebas seguro'));
+      }
+    } else {
+      // En desarrollo o sin token, usar firma normal
+      const signature = generateStripeSignature(payload, WEBHOOK_SECRET);
+      headers['stripe-signature'] = signature;
+    }
     
     if (!quietMode) {
       console.log(`\n${chalk.blue('📤')} Enviando evento: ${chalk.yellow(eventData.type)}`);
       console.log(`${chalk.gray('ID:')} ${eventData.id}`);
+      console.log(`${chalk.gray('URL:')} ${url}`);
       if (eventData.data.object.attempt_count) {
         console.log(`${chalk.gray('Intento #')}${eventData.data.object.attempt_count}`);
       }
     }
     
-    const response = await axios.post(WEBHOOK_URL, payload, {
-      headers: {
-        'Content-Type': 'application/json',
-        'stripe-signature': signature
-      }
-    });
+    const response = await axios.post(url, payload, { headers });
     
     if (!quietMode) {
       console.log(`${chalk.green('✅')} Respuesta: ${response.status} ${response.statusText}`);
@@ -342,8 +365,9 @@ async function runCLI() {
     console.log('  seq     Simular secuencia completa de fallos');
     console.log('  list    Listar eventos disponibles');
     console.log('\nFlags:');
-    console.log('  --quiet, -q    Modo silencioso (menos output)');
-    console.log('  --help, -h     Mostrar esta ayuda');
+    console.log('  --quiet, -q        Modo silencioso (menos output)');
+    console.log('  --production, -p   Simular modo producción (usar endpoint seguro)');
+    console.log('  --help, -h         Mostrar esta ayuda');
     process.exit(0);
   }
 
@@ -385,10 +409,9 @@ if (!quietMode) {
   
   // Verificar si se cargó el archivo .env
   const fs = require('fs');
-  const path = require('path');
-  const envPath = path.resolve(process.cwd(), '.env');
+  const envPath = path.resolve(__dirname, '../../.env');
   if (!fs.existsSync(envPath)) {
-    console.warn(`\n${chalk.yellow('⚠️')}  No se encontró archivo .env en el directorio actual`);
+    console.warn(`\n${chalk.yellow('⚠️')}  No se encontró archivo .env`);
     console.warn(`Buscando en: ${envPath}`);
   }
 }

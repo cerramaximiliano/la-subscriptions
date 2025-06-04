@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
-// Cargar variables de entorno
-require('dotenv').config();
+// Cargar variables de entorno desde la raíz del proyecto
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 
 const { spawn } = require('child_process');
 const readline = require('readline');
@@ -51,7 +52,7 @@ if (helpMode) {
 }
 
 // Configuración
-const WEBHOOK_URL = process.env.WEBHOOK_URL || 'http://localhost:5001/api/webhook';
+const WEBHOOK_URL = process.env.WEBHOOK_URL_SUBSCRIPTION_API || 'http://localhost:5001/api/webhook';
 const STRIPE_CLI_PATH = 'stripe'; // Asume que Stripe CLI está en PATH
 
 // Eventos a escuchar

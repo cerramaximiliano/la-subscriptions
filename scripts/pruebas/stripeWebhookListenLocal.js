@@ -3,7 +3,8 @@
 // Script alternativo para escuchar webhooks sin Stripe CLI
 // Útil cuando hay problemas con la autenticación del CLI
 
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -13,7 +14,7 @@ const app = express();
 const PORT = 3001; // Puerto diferente para no interferir
 
 // Configuración
-const WEBHOOK_URL = process.env.WEBHOOK_URL || 'http://localhost:5001/api/webhook';
+const WEBHOOK_URL = process.env.WEBHOOK_URL_SUBSCRIPTION_API || 'http://localhost:5001/api/webhook';
 const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET_DEV;
 
 console.log('🚀 Iniciando servidor local de reenvío de webhooks...\n');

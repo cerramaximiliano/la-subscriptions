@@ -157,7 +157,7 @@ node scripts/testPaymentFailures.js all  # Todos los eventos
 1. **Configurar variables de entorno:**
 ```env
 STRIPE_WEBHOOK_SECRET_DEV=whsec_...
-WEBHOOK_URL=http://localhost:5001/api/webhook
+WEBHOOK_URL=${WEBHOOK_URL_SUBSCRIPTION_API || 'http://localhost:5001/api/webhook'}
 FRONTEND_URL=http://localhost:3000
 SUPPORT_EMAIL=support@company.com
 ADMIN_EMAIL=tu-email@example.com  # ⚠️ Email donde recibirás las notificaciones de prueba

@@ -134,6 +134,37 @@
   }
 
   /**
+   * Endpoint de pruebas seguro (disponible en todos los entornos)
+   * Requiere autenticación por token
+   */
+  router.post(
+    '/webhook/test-secure',
+    express.json(),
+    (req, res, next) => {
+      // Middleware de autenticación por token
+      const authToken = req.headers['x-test-auth-token'];
+      const expectedToken = process.env.WEBHOOK_TEST_TOKEN;
+      
+      if (!expectedToken) {
+        logger.error('WEBHOOK_TEST_TOKEN no configurado');
+        return res.status(500).json({ error: 'Endpoint de pruebas no configurado' });
+      }
+      
+      if (!authToken || authToken !== expectedToken) {
+        logger.warn('Intento de acceso no autorizado al endpoint de pruebas');
+        return res.status(401).json({ error: 'No autorizado' });
+      }
+      
+      // Si el token es válido, continuar
+      logger.info('🔓 Acceso autorizado al endpoint de pruebas');
+      next();
+    },
+    checkIdempotency,
+    webhookController.testWebhook,
+    markEventProcessed
+  );
+
+  /**
    * Health check para el webhook de pagos
    */
   router.get('/webhook/health', (req, res) => {
