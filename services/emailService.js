@@ -898,6 +898,14 @@ exports.sendSubscriptionEmail = async (user, event, additionalData = {}) => {
         break;
 
       case 'canceled':
+        // Si tiene immediate: true, usar template especial
+        if (additionalData.immediate) {
+          templateName = 'immediatelyCanceled';
+        } else {
+          templateName = 'subscriptionCanceled';
+        }
+        break;
+        
       case 'downgraded':
         templateName = 'subscriptionCanceled';
         break;
@@ -908,6 +916,18 @@ exports.sendSubscriptionEmail = async (user, event, additionalData = {}) => {
 
       case 'gracePeriodExpired':
         templateName = 'gracePeriodExpired';
+        break;
+
+      case 'scheduledCancellation':
+        templateName = 'scheduledCancellation';
+        break;
+
+      case 'planDowngraded':
+        templateName = 'planDowngraded';
+        break;
+
+      case 'planUpgraded':
+        templateName = 'planUpgraded';
         break;
 
       default:
@@ -949,6 +969,29 @@ exports.sendPaymentFailedEmail = async (to, data, type) => {
     }
   } catch (error) {
     logger.error(`Error enviando email de pago fallido: ${error.message}`);
+    throw error;
+  }
+};
+
+/**
+ * Envía email de pago (genérico)
+ */
+exports.sendPaymentEmail = async (user, type, data) => {
+  try {
+    const emailData = {
+      userName: user.firstName || user.name || user.email.split('@')[0],
+      userEmail: user.email,
+      ...data
+    };
+
+    if (type === 'paymentRecovered') {
+      await this.sendEmail(user.email, 'paymentRecovered', emailData);
+      logger.info(`Email de pago recuperado enviado a ${user.email}`);
+    } else {
+      logger.warn(`Tipo de email de pago no reconocido: ${type}`);
+    }
+  } catch (error) {
+    logger.error(`Error enviando email de pago: ${error.message}`);
     throw error;
   }
 };
@@ -1061,3 +1104,8 @@ exports.getSESStats = async () => {
     return null;
   }
 };
+
+/**
+ * Exportar las plantillas para uso en testing
+ */
+exports.emailTemplates = emailTemplates;

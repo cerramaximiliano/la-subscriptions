@@ -383,7 +383,10 @@ async function handleSubscriptionDeleted(event) {
     await emailService.sendSubscriptionEmail(user, 'canceled', {
       previousPlan,
       immediate: true,
-      gracePeriodEnd
+      gracePeriodEnd,
+      foldersLimit: 5,
+      calculatorsLimit: 3,
+      contactsLimit: 10
     });
   }
 }
@@ -639,11 +642,18 @@ async function handleInvoicePaymentFailed(event) {
         if (!subscription.paymentFailures.notificationsSent.suspensionNotice.sent) {
           const itemsToArchive = await calculateItemsToArchive(user._id, subscription.plan);
           
+          // Generar URL del portal para actualizar pago
+          const updatePaymentUrl = await generateUpdatePaymentUrl(
+            subscription.stripeCustomerId,
+            `${process.env.BASE_URL}/billing/payment-updated`
+          );
+          
           await emailService.sendPaymentFailedEmail(user.email, {
             userName: user.firstName || user.name || user.email.split('@')[0],
             planName: getPlanNameFromPriceId(subscription.stripePriceId),
             gracePeriodEndDate: subscription.downgradeGracePeriod.expiresAt,
             itemsToArchive,
+            updatePaymentUrl,
             supportEmail: process.env.SUPPORT_EMAIL || 'support@company.com'
           }, 'suspension');
           

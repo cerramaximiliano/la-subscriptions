@@ -12,6 +12,7 @@
   const express = require('express');
   const router = express.Router();
   const webhookController = require('../controllers/webhookController');
+  const emailTestController = require('../controllers/emailTestController');
   const logger = require('../utils/logger');
   const { checkIdempotency, markEventProcessed, markEventFailed } = require('../middleware/webhookIdempotency');
 
@@ -267,6 +268,44 @@
       ...customData
     };
   }
+
+  /**
+   * ===========================================
+   * RUTAS DE TESTING DE TEMPLATES DE EMAIL
+   * ===========================================
+   */
+  
+  /**
+   * GET /api/webhook/test/templates
+   * Obtiene información sobre los templates disponibles
+   * 
+   * Query params:
+   * - templateName: nombre específico del template
+   * - category: 'subscription' o 'payment'
+   */
+  router.get('/webhook/test/templates', emailTestController.getTemplates);
+  
+  /**
+   * POST /api/webhook/test/templates/send
+   * Envía un email de prueba con el template especificado
+   * 
+   * Body:
+   * - userId o userEmail (requerido)
+   * - templateName (requerido)
+   * - customData (opcional): datos personalizados para el template
+   */
+  router.post('/webhook/test/templates/send', express.json(), emailTestController.sendTestEmail);
+  
+  /**
+   * POST /api/webhook/test/templates/send-all
+   * Envía todos los templates a un usuario
+   * 
+   * Body:
+   * - userId o userEmail (requerido)
+   * - category (opcional): filtrar por categoría
+   * - delay (opcional): milisegundos entre emails (default: 2000)
+   */
+  router.post('/webhook/test/templates/send-all', express.json(), emailTestController.sendAllTestEmails);
 
   /**
    * Manejo de errores 404 para rutas no encontradas
