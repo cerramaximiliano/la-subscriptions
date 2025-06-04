@@ -10,6 +10,36 @@ const sesClient = new SESClient({
   }
 });
 
+// Whitelist de emails para modo test
+const TEST_EMAIL_WHITELIST = process.env.TEST_EMAIL_WHITELIST 
+  ? process.env.TEST_EMAIL_WHITELIST.split(',').map(email => email.trim())
+  : ['cerramaximiliano@gmail.com', 'cerramaximiliano@protonmail.com'];
+
+// Función para verificar si debemos filtrar emails
+const shouldFilterEmail = (toEmail) => {
+  // Solo filtrar si estamos en modo test (global flag seteado por webhook controller)
+  if (global.currentWebhookTestMode) {
+    const isWhitelisted = TEST_EMAIL_WHITELIST.includes(toEmail);
+    
+    if (!isWhitelisted) {
+      logger.warn(`📧 EMAIL BLOQUEADO (Modo Test) - Email original: ${toEmail}`);
+      logger.info(`📋 Whitelist actual: ${TEST_EMAIL_WHITELIST.join(', ')}`);
+      logger.info(`💡 Para recibir este email, agregue "${toEmail}" a TEST_EMAIL_WHITELIST en .env`);
+      
+      // Seleccionar un email de la whitelist para enviar en su lugar
+      const replacementEmail = TEST_EMAIL_WHITELIST[0];
+      logger.info(`✉️  Email será enviado a: ${replacementEmail} (en lugar de ${toEmail})`);
+      
+      return { shouldBlock: false, replacementEmail }; // No bloqueamos, redirigimos
+    }
+    
+    return { shouldBlock: false, replacementEmail: toEmail };
+  }
+  
+  // No estamos en modo test, enviar normalmente
+  return { shouldBlock: false, replacementEmail: toEmail };
+};
+
 // Plantillas de email
 const emailTemplates = {
   subscriptionCreated: {
@@ -784,19 +814,39 @@ exports.sendEmail = async (to, templateName, data) => {
       throw new Error(`Plantilla de email '${templateName}' no encontrada`);
     }
 
+    // Aplicar filtro de whitelist si estamos en modo test
+    const originalEmail = to;
+    const filterResult = shouldFilterEmail(to);
+    const actualRecipient = filterResult.replacementEmail;
+    
+    // Si el email fue cambiado, agregarlo al cuerpo del email para referencia
+    let modifiedData = { ...data };
+    if (originalEmail !== actualRecipient) {
+      modifiedData._testMode = true;
+      modifiedData._originalRecipient = originalEmail;
+      modifiedData._notice = `[MODO TEST] Este email iba dirigido originalmente a: ${originalEmail}`;
+    }
+
     const params = {
       Source: process.env.EMAIL_MARKETING_DEFAULT_SENDER || 'noreply@tuapp.com',
       Destination: {
-        ToAddresses: [to]
+        ToAddresses: [actualRecipient]
       },
       Message: {
         Subject: {
-          Data: template.subject,
+          Data: originalEmail !== actualRecipient 
+            ? `[TEST] ${template.subject} (para: ${originalEmail})`
+            : template.subject,
           Charset: 'UTF-8'
         },
         Body: {
           Html: {
-            Data: template.html(data),
+            Data: originalEmail !== actualRecipient
+              ? `<div style="background-color: #fffacd; border: 2px solid #ff6b6b; padding: 10px; margin-bottom: 20px;">
+                  <strong>⚠️ MODO TEST:</strong> Este email estaba destinado a <strong>${originalEmail}</strong><br>
+                  Fue redirigido a tu email porque está en la whitelist de pruebas.
+                </div>` + template.html(modifiedData)
+              : template.html(data),
             Charset: 'UTF-8'
           }
         }
@@ -810,7 +860,7 @@ exports.sendEmail = async (to, templateName, data) => {
 
     logger.info(`Email enviado exitosamente via AWS SES`);
     logger.info(`MessageId: ${response.MessageId}`);
-    logger.info(`Template: ${templateName}, To: ${to}`);
+    logger.info(`Template: ${templateName}, To: ${actualRecipient}${originalEmail !== actualRecipient ? ` (originalmente para: ${originalEmail})` : ''}`);
 
     return response;
   } catch (error) {
@@ -890,7 +940,13 @@ exports.sendPaymentFailedEmail = async (to, data, type) => {
     }
 
     await this.sendEmail(to, templateName, data);
-    logger.info(`Email de pago fallido tipo '${type}' enviado a ${to}`);
+    
+    // Log adicional si estamos en modo test
+    if (global.currentWebhookTestMode) {
+      logger.info(`📧 [MODO TEST] Email de pago fallido tipo '${type}'`);
+      logger.info(`   Email original: ${to}`);
+      logger.info(`   Tipo de notificación: ${type}`);
+    }
   } catch (error) {
     logger.error(`Error enviando email de pago fallido: ${error.message}`);
     throw error;

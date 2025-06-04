@@ -11,14 +11,15 @@ const emailService = require('../services/emailService');
 const Subscription = require('../models/Subscription');
 
 /**
- * Maneja webhooks de prueba (solo desarrollo)
+ * Maneja webhooks de prueba (solo desarrollo o con autenticación)
  */
 exports.testWebhook = async (req, res) => {
-  if (process.env.NODE_ENV === 'production') {
-    return res.status(404).json({ error: 'Not available in production' });
-  }
-
+  // Este endpoint puede ser usado en producción si tiene autenticación (test-secure)
   const event = req.body;
+  
+  // Marcar como modo test
+  global.currentWebhookTestMode = true;
+  logger.info('🧪 Procesando webhook en MODO TEST');
   
   // Validar estructura básica del evento
   if (!event || !event.id || !event.type) {
@@ -88,13 +89,22 @@ exports.handleStripeWebhook = async (req, res) => {
     if (endpointSecret && sig) {
       event = stripe.webhooks.constructEvent(req.body, sig,
         endpointSecret);
-      logger.info(`Webhook verificado: ${event.type} - ID: 
-  ${event.id}`);
+      logger.info(`Webhook verificado: ${event.type} - ID: ${event.id}`);
+      
+      // Detectar modo de prueba
+      if (!event.livemode) {
+        logger.info('🧪 Evento en modo TEST detectado');
+        global.currentWebhookTestMode = true;
+      } else {
+        global.currentWebhookTestMode = false;
+      }
     } else {
       // Solo en desarrollo sin firma
       if (process.env.NODE_ENV !== 'production') {
         logger.warn('⚠️  Procesando webhook sin verificación de firma (solo desarrollo)');
         event = JSON.parse(req.body.toString());
+        // También marcar como modo test si no hay firma
+        global.currentWebhookTestMode = true;
       } else {
         throw new Error('Firma de webhook requerida en producción');
       }
