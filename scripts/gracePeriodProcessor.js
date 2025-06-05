@@ -16,6 +16,7 @@ const Folder = require('../models/Folder');
 const Calculator = require('../models/Calculator');
 const Contact = require('../models/Contact');
 const Alert = require('../models/Alert');
+const PlanConfig = require('../models/PlanConfig');
 
 /**
  * Función principal que procesa períodos de gracia
@@ -226,7 +227,8 @@ async function processPaymentGracePeriods() {
  */
 async function performAutoArchiving(userId, targetPlan) {
   try {
-    const limits = getPlanLimits(targetPlan);
+    // Usar PlanConfig dinámicamente
+    const limits = await getPlanLimitsFromConfig(targetPlan);
     const result = {
       folders: { checked: 0, archived: 0 },
       calculators: { checked: 0, archived: 0 },
@@ -438,13 +440,52 @@ async function cleanupObsoleteData() {
 }
 
 /**
- * Obtener límites del plan
+ * Obtener límites del plan desde PlanConfig
+ */
+async function getPlanLimitsFromConfig(planId) {
+  try {
+    const planConfig = await PlanConfig.findOne({ planId: planId.toLowerCase() });
+    
+    if (!planConfig) {
+      logger.warn(`PlanConfig no encontrado para planId: ${planId}`);
+      // Retornar límites por defecto (free)
+      return { maxFolders: 5, maxCalculators: 3, maxContacts: 10, maxStorage: 50 };
+    }
+    
+    const limits = {};
+    planConfig.resourceLimits.forEach(limit => {
+      switch(limit.name) {
+        case 'folders':
+          limits.maxFolders = limit.limit;
+          break;
+        case 'calculators':
+          limits.maxCalculators = limit.limit;
+          break;
+        case 'contacts':
+          limits.maxContacts = limit.limit;
+          break;
+        case 'storage':
+          limits.maxStorage = limit.limit;
+          break;
+      }
+    });
+    
+    return limits;
+  } catch (error) {
+    logger.error('Error obteniendo límites del plan:', error);
+    // Retornar límites por defecto en caso de error
+    return { maxFolders: 5, maxCalculators: 3, maxContacts: 10, maxStorage: 50 };
+  }
+}
+
+/**
+ * Obtener límites del plan (legacy - mantener por compatibilidad)
  */
 function getPlanLimits(plan) {
   const limits = {
     free: { maxFolders: 5, maxCalculators: 3, maxContacts: 10 },
     standard: { maxFolders: 50, maxCalculators: 20, maxContacts: 100 },
-    premium: { maxFolders: 999999, maxCalculators: 999999, maxContacts: 999999 }
+    premium: { maxFolders: 500, maxCalculators: 200, maxContacts: 1000 }
   };
   
   return limits[plan] || limits.free;

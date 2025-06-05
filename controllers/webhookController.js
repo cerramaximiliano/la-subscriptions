@@ -9,6 +9,7 @@ const subscriptionService =
   require('../services/subscriptionService');
 const emailService = require('../services/emailService');
 const Subscription = require('../models/Subscription');
+const PlanConfig = require('../models/PlanConfig');
 const { generateUpdatePaymentUrl } = require('../utils/stripeCustomerPortal');
 
 /**
@@ -328,12 +329,16 @@ async function handlePlanChange(subscription, oldPriceId, newPriceId, user) {
 
     // El período de gracia se manejará en subscriptionService
     // Aquí solo enviamos la notificación
+    // Obtener límites dinámicamente desde PlanConfig
+    const newPlanId = newPlanName.toLowerCase().replace('í', 'i').replace('á', 'a');
+    const newLimits = await getPlanLimitsFromConfig(newPlanId === 'gratuito' ? 'free' : newPlanId);
+    
     await emailService.sendSubscriptionEmail(user, 'planDowngraded', {
       previousPlan: oldPlanName,
       newPlan: newPlanName,
       gracePeriodEnd: new Date(Date.now() + 15 * 24 * 60 * 60 *
         1000).toLocaleDateString('es-ES'),
-      newLimits: getPlanLimits(newPlanName),
+      newLimits,
       isDowngrade: true
     });
 
@@ -341,10 +346,14 @@ async function handlePlanChange(subscription, oldPriceId, newPriceId, user) {
     // Es un upgrade
     logger.info(`Upgrade detectado: ${oldPlanName} → ${newPlanName}`);
 
+    // Obtener límites dinámicamente desde PlanConfig
+    const newPlanId = newPlanName.toLowerCase().replace('í', 'i').replace('á', 'a');
+    const newLimits = await getPlanLimitsFromConfig(newPlanId === 'gratuito' ? 'free' : newPlanId);
+
     await emailService.sendSubscriptionEmail(user, 'planUpgraded', {
       previousPlan: oldPlanName,
       newPlan: newPlanName,
-      newLimits: getPlanLimits(newPlanName),
+      newLimits,
       isUpgrade: true
     });
   }
@@ -527,6 +536,13 @@ async function handleInvoicePaymentFailed(event) {
       return;
     }
     
+    // NUEVO: Validar que no sea un plan gratuito
+    const planConfig = await PlanConfig.findOne({ planId: subscription.plan });
+    if (planConfig && planConfig.pricingInfo.basePrice === 0) {
+      logger.warn(`[SKIP] Ignorando pago fallido para plan gratuito: ${subscription.plan}`);
+      return;
+    }
+    
     // Incrementar contador de fallos
     subscription.paymentFailures.count += 1;
     
@@ -600,11 +616,14 @@ async function handleInvoicePaymentFailed(event) {
         subscription.accountStatus = 'suspended';
         
         if (!subscription.paymentFailures.notificationsSent.finalWarning.sent) {
+          // Obtener características dinámicamente desde PlanConfig
+          const affectedFeatures = await getPremiumFeaturesFromConfig(subscription.plan);
+          
           await emailService.sendPaymentFailedEmail(user.email, {
             userName: user.firstName || user.name || user.email.split('@')[0],
             planName: getPlanNameFromPriceId(subscription.stripePriceId),
             suspensionDate: new Date(),
-            affectedFeatures: getPremiumFeatures(subscription.plan),
+            affectedFeatures,
             updatePaymentUrl: await generateUpdatePaymentUrl(
               subscription.stripeCustomerId,
               `${process.env.BASE_URL}/billing/payment-updated`
@@ -704,21 +723,47 @@ async function calculateCurrentUsage(userId) {
   return { folders, calculators, contacts };
 }
 
+// Obtener características del plan desde PlanConfig
+async function getPremiumFeaturesFromConfig(planId) {
+  try {
+    const planConfig = await PlanConfig.findOne({ planId: planId.toLowerCase() });
+    
+    if (!planConfig) {
+      logger.warn(`PlanConfig no encontrado para planId: ${planId}`);
+      return [];
+    }
+    
+    // Retornar solo las características habilitadas
+    return planConfig.features
+      .filter(feature => feature.enabled)
+      .map(feature => feature.description || feature.name);
+      
+  } catch (error) {
+    logger.error('Error obteniendo características del plan:', error);
+    return [];
+  }
+}
+
+// Mantener función legacy para compatibilidad
 function getPremiumFeatures(planName) {
+  // Esta función se mantiene por compatibilidad pero se recomienda usar getPremiumFeaturesFromConfig
   const features = {
     'standard': [
-      'Calculadoras ilimitadas',
-      'Exportación avanzada',
-      'Soporte prioritario',
-      'Carpetas vinculadas',
-      'Sistema de reservas'
+      'Exportación de reportes',
+      'Operaciones masivas',
+      'Gestor de agenda',
+      'Gestor de citas',
+      'Vinculación de causas'
     ],
     'premium': [
-      'Todas las características Standard',
-      'API access',
-      'Integraciones personalizadas',
-      'Análisis avanzado',
-      'Automatización de tareas'
+      'Análisis avanzados',
+      'Exportación de reportes',
+      'Automatización de tareas',
+      'Operaciones masivas',
+      'Soporte prioritario',
+      'Gestor de agenda',
+      'Gestor de citas',
+      'Vinculación de causas'
     ]
   };
   
@@ -740,12 +785,8 @@ async function calculateItemsToArchive(userId, currentPlan) {
   const Calculator = require('../models/Calculator');
   const Contact = require('../models/Contact');
   
-  // Obtener límites del plan FREE
-  const freeLimits = {
-    folders: 5,
-    calculators: 3,
-    contacts: 10
-  };
+  // Obtener límites del plan FREE desde PlanConfig
+  const freeLimits = await getPlanLimitsFromConfig('free');
   
   // Contar elementos activos
   const [activeFolders, activeCalculators, activeContacts] = await Promise.all([
@@ -755,9 +796,9 @@ async function calculateItemsToArchive(userId, currentPlan) {
   ]);
   
   return {
-    folders: Math.max(0, activeFolders - freeLimits.folders),
-    calculators: Math.max(0, activeCalculators - freeLimits.calculators),
-    contacts: Math.max(0, activeContacts - freeLimits.contacts)
+    folders: Math.max(0, activeFolders - freeLimits.maxFolders),
+    calculators: Math.max(0, activeCalculators - freeLimits.maxCalculators),
+    contacts: Math.max(0, activeContacts - freeLimits.maxContacts)
   };
 }
 
@@ -806,20 +847,55 @@ function getPlanNameFromPriceId(priceId) {
   return planMapping[priceId] || 'Desconocido';
 }
 
-// Obtener límites del plan
+// Obtener límites del plan desde PlanConfig
+async function getPlanLimitsFromConfig(planId) {
+  try {
+    const planConfig = await PlanConfig.findOne({ planId: planId.toLowerCase() });
+    
+    if (!planConfig) {
+      logger.warn(`PlanConfig no encontrado para planId: ${planId}`);
+      // Retornar límites por defecto (free)
+      return { maxFolders: 5, maxCalculators: 3, maxContacts: 10, maxStorage: 50 };
+    }
+    
+    const limits = {};
+    planConfig.resourceLimits.forEach(limit => {
+      switch(limit.name) {
+        case 'folders':
+          limits.maxFolders = limit.limit;
+          break;
+        case 'calculators':
+          limits.maxCalculators = limit.limit;
+          break;
+        case 'contacts':
+          limits.maxContacts = limit.limit;
+          break;
+        case 'storage':
+          limits.maxStorage = limit.limit;
+          break;
+      }
+    });
+    
+    return limits;
+  } catch (error) {
+    logger.error('Error obteniendo límites del plan:', error);
+    // Retornar límites por defecto en caso de error
+    return { maxFolders: 5, maxCalculators: 3, maxContacts: 10, maxStorage: 50 };
+  }
+}
+
+// Mantener función legacy para compatibilidad
 function getPlanLimits(planName) {
+  // Esta función se mantiene por compatibilidad pero se recomienda usar getPlanLimitsFromConfig
   const limits = {
     'Gratuito': {
-      maxFolders: 5, maxCalculators: 3, maxContacts:
-        10
+      maxFolders: 5, maxCalculators: 3, maxContacts: 10
     },
     'Estándar': {
-      maxFolders: 50, maxCalculators: 20, maxContacts:
-        100
+      maxFolders: 50, maxCalculators: 20, maxContacts: 100
     },
     'Premium': {
-      maxFolders: 999999, maxCalculators: 999999,
-      maxContacts: 999999
+      maxFolders: 500, maxCalculators: 200, maxContacts: 1000
     }
   };
 

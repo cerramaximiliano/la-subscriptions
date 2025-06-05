@@ -78,6 +78,8 @@ graph TD
 - Notificaciones escalonadas (1°, 2°, 3° y 4° intento)
 - Cambio de estado a `at_risk`, `suspended`, `grace_period`
 - Solo actualiza `accountStatus`, NO `status` ni `plan`
+- **NUEVO**: Valida que no sea plan gratuito antes de procesar
+- **NUEVO**: Obtiene límites y características dinámicamente desde PlanConfig
 
 #### 2. **Recuperación de Pagos** (`invoice.payment_succeeded`)
 - SOLO cuando hay fallos previos (`paymentFailures.count > 0`)
@@ -90,6 +92,7 @@ graph TD
 - Auto-archiva contenido que excede límites del plan
 - Envía recordatorios antes del vencimiento (3 días y 1 día)
 - Limpia registros obsoletos de más de 30 días
+- **NUEVO**: Usa PlanConfig para determinar límites de archivado
 
 #### 4. **Campos que Gestiona**:
 ```javascript
@@ -521,6 +524,69 @@ statusHistory.push({
   triggeredBy: 'grace_period_processor' // Para processor
 });
 ```
+
+---
+
+## 🔧 Integración con PlanConfig
+
+### Nuevas Funciones Dinámicas
+
+El microservicio ahora utiliza la colección `PlanConfig` para obtener información actualizada de los planes:
+
+#### 1. **getPlanLimitsFromConfig(planId)**
+```javascript
+// Obtiene límites dinámicamente desde la base de datos
+const limits = await getPlanLimitsFromConfig('standard');
+// Retorna: { maxFolders: 50, maxCalculators: 20, maxContacts: 100, maxStorage: 1024 }
+```
+
+#### 2. **getPremiumFeaturesFromConfig(planId)**
+```javascript
+// Obtiene características habilitadas del plan
+const features = await getPremiumFeaturesFromConfig('premium');
+// Retorna: ['Análisis avanzados', 'Exportación de reportes', ...]
+```
+
+#### 3. **Validación de Plan Gratuito**
+```javascript
+// Antes de procesar pagos fallidos
+const planConfig = await PlanConfig.findOne({ planId: subscription.plan });
+if (planConfig && planConfig.pricingInfo.basePrice === 0) {
+  logger.warn('[SKIP] Ignorando pago fallido para plan gratuito');
+  return;
+}
+```
+
+### Estructura de PlanConfig Esperada
+```javascript
+{
+  planId: 'standard',
+  stripePriceId: 'price_1RC96RJdr4OZ264aKCFlWorm',
+  displayName: 'Plan Estándar',
+  pricingInfo: {
+    basePrice: 9.99,
+    currency: 'USD',
+    billingPeriod: 'monthly'
+  },
+  resourceLimits: [
+    { name: 'folders', limit: 50 },
+    { name: 'calculators', limit: 20 },
+    { name: 'contacts', limit: 100 },
+    { name: 'storage', limit: 1024 }
+  ],
+  features: [
+    { name: 'exportReports', enabled: true, description: 'Exportación de reportes' },
+    { name: 'bulkOperations', enabled: true, description: 'Operaciones masivas' },
+    // ...
+  ]
+}
+```
+
+### Ventajas de la Integración
+1. **Flexibilidad**: Los límites y características se pueden cambiar sin modificar código
+2. **Consistencia**: Una única fuente de verdad para la información de planes
+3. **Mantenibilidad**: Menos código hardcodeado
+4. **Escalabilidad**: Fácil agregar nuevos planes o modificar existentes
 
 ---
 
