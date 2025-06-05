@@ -81,10 +81,12 @@ graph TD
 - **NUEVO**: Valida que no sea plan gratuito antes de procesar
 - **NUEVO**: Obtiene límites y características dinámicamente desde PlanConfig
 
-#### 2. **Recuperación de Pagos** (`invoice.payment_succeeded`)
+#### 2. **Recuperación de Pagos** (`invoice.payment_succeeded`, `invoice.paid`)
+- SOLO procesa pagos de suscripciones (ignora pagos únicos)
 - SOLO cuando hay fallos previos (`paymentFailures.count > 0`)
 - Resetea contadores y restaura acceso
 - Envía email de confirmación de recuperación
+- **IGNORA**: Pagos sin ID de suscripción (one-time payments)
 
 #### 3. **Gestión de Períodos de Gracia y Auto-archivado**
 - Procesa períodos de gracia vencidos por downgrade

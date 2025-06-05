@@ -507,6 +507,21 @@ async function handleInvoicePaid(event) {
     } catch (error) {
       logger.error('Error procesando pago de factura:', error);
     }
+  } else {
+    // No hay suscripción asociada - es un pago único
+    logger.info(`[SKIP] Factura sin suscripción asociada - Este es un pago único, no de suscripción`);
+    logger.info(`Cliente del pago único: ${invoice.customer}`);
+    
+    // Opcionalmente, buscar si este cliente tiene alguna suscripción
+    const customerSubscriptions = await Subscription.find({ stripeCustomerId: invoice.customer });
+    if (customerSubscriptions.length > 0) {
+      logger.info(`El cliente tiene ${customerSubscriptions.length} suscripción(es) en la BD:`);
+      customerSubscriptions.forEach(sub => {
+        logger.info(`- ${sub.stripeSubscriptionId} (${sub.plan}) - Estado: ${sub.status}`);
+      });
+    } else {
+      logger.info(`El cliente ${invoice.customer} no tiene suscripciones en la BD`);
+    }
   }
 }
 
