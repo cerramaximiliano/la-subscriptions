@@ -118,6 +118,7 @@ exports.handleStripeWebhook = async (req, res) => {
 
   // Log del tipo de evento recibido
   logger.info(`Evento Stripe recibido: ${event.type}`);
+  logger.info(`Event ID: ${event.id}, Livemode: ${event.livemode}`);
   
   // IMPORTANTE: Este microservicio solo maneja eventos de pagos fallidos/recuperación
   const PAYMENT_EVENTS = [
@@ -133,8 +134,15 @@ exports.handleStripeWebhook = async (req, res) => {
     return res.status(200).json({ received: true, processed: false });
   }
 
-  logger.debug('Datos del evento:',
-    JSON.stringify(event.data.object, null, 2));
+  // Log más detallado del objeto principal
+  const obj = event.data.object;
+  logger.info(`Procesando ${event.type}:`);
+  logger.info(`- Invoice ID: ${obj.id}`);
+  logger.info(`- Customer: ${obj.customer}`);
+  logger.info(`- Subscription: ${obj.subscription || 'N/A'}`);
+  logger.info(`- Amount: ${obj.amount_paid || obj.amount_due} ${obj.currency}`);
+  
+  logger.debug('Datos completos del evento:', JSON.stringify(event.data.object, null, 2));
 
   // Procesar solo eventos de pagos
   try {
@@ -407,10 +415,10 @@ async function handleInvoicePaid(event) {
   const invoice = event.data.object;
 
   logger.info(`Factura pagada: ${invoice.id}`);
-  logger.info(`Monto: ${invoice.amount_paid / 100} 
-  ${invoice.currency.toUpperCase()}`);
-
-  // Si la factura está asociada a una suscripción, actualizar el estado
+  logger.info(`Monto: ${invoice.amount_paid / 100} ${invoice.currency.toUpperCase()}`);
+  logger.info(`Cliente: ${invoice.customer}`);
+  
+  // Debugging adicional
   if (invoice.subscription) {
     logger.info(`Factura asociada a suscripción: ${invoice.subscription}`);
     
@@ -425,6 +433,10 @@ async function handleInvoicePaid(event) {
       });
       
       if (dbSubscription) {
+        logger.info(`Suscripción encontrada en BD: ${dbSubscription._id}`);
+        logger.info(`Estado actual: ${dbSubscription.status}, accountStatus: ${dbSubscription.accountStatus}`);
+        logger.info(`Fallos de pago previos: ${dbSubscription.paymentFailures?.count || 0}`);
+        
         // IMPORTANTE: Solo procesar si es una recuperación de pago fallido
         if (dbSubscription.paymentFailures && dbSubscription.paymentFailures.count > 0) {
           logger.info(`[PAYMENT_RECOVERY] Pago recuperado para suscripción: ${invoice.subscription}`);
@@ -476,10 +488,21 @@ async function handleInvoicePaid(event) {
             } catch (emailError) {
               logger.error('Error enviando email de recuperación:', emailError);
             }
+          } else {
+            logger.warn(`No se encontró usuario para la suscripción ${dbSubscription._id}`);
           }
+        } else {
+          logger.info(`[SKIP] Pago normal (no es recuperación) - No hay fallos previos para procesar`);
         }
       } else {
-        logger.warn(`Suscripción ${invoice.subscription} no encontrada en la base de datos`);
+        logger.warn(`[NOT_FOUND] Suscripción ${invoice.subscription} no encontrada en la base de datos`);
+        
+        // Intentar buscar por customerId
+        const byCustomer = await Subscription.findOne({ stripeCustomerId: invoice.customer });
+        if (byCustomer) {
+          logger.info(`Encontrada suscripción por customerId: ${byCustomer._id}, pero el ID de suscripción no coincide`);
+          logger.info(`Expected: ${invoice.subscription}, Found: ${byCustomer.stripeSubscriptionId}`);
+        }
       }
     } catch (error) {
       logger.error('Error procesando pago de factura:', error);
