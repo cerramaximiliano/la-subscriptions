@@ -106,9 +106,9 @@ async function getResourceCounts(userId) {
   const Contact = require('../models/Contact');
 
   const [folders, calculators, contacts] = await Promise.all([
-    Folder.countDocuments({ user: userId, archived: false }),
-    Calculator.countDocuments({ user: userId, archived: false }),
-    Contact.countDocuments({ user: userId, archived: false })
+    Folder.countDocuments({ userId: userId, archived: false }),
+    Calculator.countDocuments({ userId: userId, archived: false }),
+    Contact.countDocuments({ userId: userId, archived: false })
   ]);
 
   return { folders, calculators, contacts };
@@ -124,7 +124,7 @@ async function archiveFolders(userId, maxAllowed) {
   try {
     // Contar carpetas activas
     const activeCount = await Folder.countDocuments({
-      user: userId,
+      userId: userId,
       archived: false
     });
 
@@ -136,7 +136,7 @@ async function archiveFolders(userId, maxAllowed) {
 
     // Obtener las carpetas más antiguas para archivar
     const foldersToArchive = await Folder.find({
-      user: userId,
+      userId: userId,
       archived: false
     })
       .sort({ createdAt: 1 }) // Más antiguas primero
@@ -172,7 +172,7 @@ async function archiveCalculators(userId, maxAllowed) {
 
   try {
     const activeCount = await Calculator.countDocuments({
-      user: userId,
+      userId: userId,
       archived: false
     });
 
@@ -183,7 +183,7 @@ async function archiveCalculators(userId, maxAllowed) {
     const toArchive = activeCount - maxAllowed;
 
     const calculatorsToArchive = await Calculator.find({
-      user: userId,
+      userId: userId,
       archived: false
     })
       .sort({ createdAt: 1 })
@@ -219,7 +219,7 @@ async function archiveContacts(userId, maxAllowed) {
 
   try {
     const activeCount = await Contact.countDocuments({
-      user: userId,
+      userId: userId,
       archived: false
     });
 
@@ -230,7 +230,7 @@ async function archiveContacts(userId, maxAllowed) {
     const toArchive = activeCount - maxAllowed;
 
     const contactsToArchive = await Contact.find({
-      user: userId,
+      userId: userId,
       archived: false
     })
       .sort({ createdAt: 1 })

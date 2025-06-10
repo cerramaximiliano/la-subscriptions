@@ -106,8 +106,9 @@ async function processExpiredGracePeriods() {
         
         logger.info(`[AUTO-ARCHIVE] Procesando usuario ${user.email}`);
         
-        // Realizar auto-archivado
-        const archiveResult = await performAutoArchiving(user._id, subscription.plan);
+        // Realizar auto-archivado al plan destino (free)
+        const targetPlan = subscription.downgradeGracePeriod.targetPlan || 'free';
+        const archiveResult = await performAutoArchiving(user._id, targetPlan);
         
         // Marcar como procesado
         subscription.downgradeGracePeriod.autoArchiveScheduled = false;
@@ -124,25 +125,41 @@ async function processExpiredGracePeriods() {
         
         // Enviar notificación
         if (user.email) {
-          await emailService.sendPaymentEmail(user, 'gracePeriodExpired', {
-            planName: subscription.plan,
-            archivedFolders: archiveResult.folders?.archived || 0,
-            archivedCalculators: archiveResult.calculators?.archived || 0,
-            archivedContacts: archiveResult.contacts?.archived || 0,
-            totalArchived
+          await emailService.sendSubscriptionEmail(user, 'gracePeriodExpired', {
+            planName: subscription.downgradeGracePeriod.previousPlan,
+            targetPlan: targetPlan,
+            foldersArchived: archiveResult.folders?.archived || 0,
+            calculatorsArchived: archiveResult.calculators?.archived || 0,
+            contactsArchived: archiveResult.contacts?.archived || 0,
+            totalArchived,
+            planLimits: getPlanLimits(targetPlan)
           });
         }
         
-        // Crear alerta en el sistema
-        await Alert.create({
-          user: user._id,
-          type: 'info',
-          title: 'Auto-archivado completado',
-          message: `Se han archivado ${totalArchived} elementos que excedían los límites de tu plan.`,
-          icon: 'Archive',
-          action: 'Ver archivados',
-          route: '/archived'
-        });
+        // Crear alerta en el sistema solo si se archivaron elementos
+        if (totalArchived > 0) {
+          try {
+            // Buscar primera carpeta del usuario para asociar la alerta
+            const firstFolder = await Folder.findOne({ userId: user._id });
+            if (firstFolder) {
+              await Alert.create({
+                userId: user._id,
+                folderId: firstFolder._id,
+                secondaryText: `Se han archivado ${totalArchived} elementos que excedían los límites de tu plan.`,
+                actionText: 'Ver archivados',
+                avatarIcon: 'TaskSquare',
+                avatarType: 'icon',
+                avatarSize: 40,
+                primaryText: 'Auto-archivado completado',
+                primaryVariant: 'info'
+              });
+              logger.info('Alerta creada exitosamente');
+            }
+          } catch (alertError) {
+            logger.error('Error creando alerta:', alertError);
+            // No fallar el proceso por error en alerta
+          }
+        }
         
         processedCount++;
         
@@ -227,8 +244,10 @@ async function processPaymentGracePeriods() {
  */
 async function performAutoArchiving(userId, targetPlan) {
   try {
-    // Usar PlanConfig dinámicamente
-    const limits = await getPlanLimitsFromConfig(targetPlan);
+    // Usar límites del plan (usar legacy porque PlanConfig no tiene features poblados)
+    const limits = getPlanLimits(targetPlan);
+    logger.info(`[DEBUG] Límites del plan ${targetPlan}:`, JSON.stringify(limits));
+    
     const result = {
       folders: { checked: 0, archived: 0 },
       calculators: { checked: 0, archived: 0 },
@@ -236,62 +255,124 @@ async function performAutoArchiving(userId, targetPlan) {
     };
     
     // 1. Archivar carpetas excedentes (más antiguas primero)
+    // Folder usa 'userId' según debug
     const activeFolders = await Folder.find({ 
-      user: userId, 
-      archived: false 
+      userId: userId, 
+      archived: { $ne: true }  // Incluir documentos sin campo 'archived'
     }).sort({ createdAt: 1 });
     
     result.folders.checked = activeFolders.length;
     
+    // Log para debug
+    logger.info(`[DEBUG] Carpetas activas encontradas: ${activeFolders.length}`);
+    if (activeFolders.length === 0) {
+      const totalFolders = await Folder.countDocuments({ userId: userId });
+      logger.info(`[DEBUG] Usuario ${userId} - Total carpetas: ${totalFolders}, Activas: 0`);
+    }
+    
     if (activeFolders.length > limits.maxFolders) {
       const toArchive = activeFolders.slice(limits.maxFolders);
+      logger.info(`[DEBUG] Carpetas a archivar: ${toArchive.length} (${activeFolders.length} activas - ${limits.maxFolders} límite)`);
       
       for (const folder of toArchive) {
-        folder.archived = true;
-        folder.archivedAt = new Date();
-        folder.archivedReason = 'auto_archived_limit_exceeded';
-        await folder.save();
-        result.folders.archived++;
+        try {
+          // Usar updateOne para evitar problemas de validación con campos de fecha mal formateados
+          await Folder.updateOne(
+            { _id: folder._id },
+            {
+              $set: {
+                archived: true,
+                archivedAt: new Date(),
+                archivedReason: 'auto_archived_limit_exceeded'
+              }
+            }
+          );
+          result.folders.archived++;
+          logger.info(`[ARCHIVE] Carpeta archivada: ${folder._id}`);
+        } catch (archiveError) {
+          logger.error(`Error archivando carpeta ${folder._id}:`, archiveError.message);
+        }
       }
     }
     
     // 2. Archivar calculadoras excedentes
+    // Calculator usa 'userId' (no 'user' que es un campo de string)
     const activeCalculators = await Calculator.find({ 
-      user: userId, 
-      archived: false 
+      userId: userId, 
+      archived: { $ne: true }  // Incluir documentos sin campo 'archived'
     }).sort({ createdAt: 1 });
     
     result.calculators.checked = activeCalculators.length;
     
+    // Log para debug
+    logger.info(`[DEBUG] Calculadoras activas encontradas: ${activeCalculators.length}`);
+    if (activeCalculators.length === 0) {
+      const totalCalculators = await Calculator.countDocuments({ userId: userId });
+      logger.info(`[DEBUG] Usuario ${userId} - Total calculadoras: ${totalCalculators}, Activas: 0`);
+    }
+    
     if (activeCalculators.length > limits.maxCalculators) {
       const toArchive = activeCalculators.slice(limits.maxCalculators);
+      logger.info(`[DEBUG] Calculadoras a archivar: ${toArchive.length} (${activeCalculators.length} activas - ${limits.maxCalculators} límite)`);
       
       for (const calculator of toArchive) {
-        calculator.archived = true;
-        calculator.archivedAt = new Date();
-        calculator.archivedReason = 'auto_archived_limit_exceeded';
-        await calculator.save();
-        result.calculators.archived++;
+        try {
+          // Usar updateOne para evitar problemas de validación
+          await Calculator.updateOne(
+            { _id: calculator._id },
+            {
+              $set: {
+                archived: true,
+                archivedAt: new Date(),
+                archivedReason: 'auto_archived_limit_exceeded'
+              }
+            }
+          );
+          result.calculators.archived++;
+          logger.info(`[ARCHIVE] Calculadora archivada: ${calculator._id}`);
+        } catch (archiveError) {
+          logger.error(`Error archivando calculadora ${calculator._id}:`, archiveError.message);
+        }
       }
     }
     
     // 3. Archivar contactos excedentes
+    // Contact usa 'userId'
     const activeContacts = await Contact.find({ 
-      userId, 
-      archived: false 
+      userId: userId, 
+      archived: { $ne: true }  // Incluir documentos sin campo 'archived'
     }).sort({ createdAt: 1 });
     
     result.contacts.checked = activeContacts.length;
+    
+    // Log para debug
+    logger.info(`[DEBUG] Contactos activos encontrados: ${activeContacts.length}`);
+    if (activeContacts.length === 0) {
+      const totalContacts = await Contact.countDocuments({ userId: userId });
+      logger.info(`[DEBUG] Usuario ${userId} - Total contactos: ${totalContacts}, Activos: 0`);
+    }
     
     if (activeContacts.length > limits.maxContacts) {
       const toArchive = activeContacts.slice(limits.maxContacts);
       
       for (const contact of toArchive) {
-        contact.archived = true;
-        contact.archivedAt = new Date();
-        contact.archivedReason = 'auto_archived_limit_exceeded';
-        await contact.save();
-        result.contacts.archived++;
+        try {
+          // Usar updateOne para evitar problemas de validación
+          await Contact.updateOne(
+            { _id: contact._id },
+            {
+              $set: {
+                archived: true,
+                archivedAt: new Date(),
+                archivedReason: 'auto_archived_limit_exceeded'
+              }
+            }
+          );
+          result.contacts.archived++;
+          logger.info(`[ARCHIVE] Contacto archivado: ${contact._id}`);
+        } catch (archiveError) {
+          logger.error(`Error archivando contacto ${contact._id}:`, archiveError.message);
+        }
       }
     }
     
@@ -452,23 +533,14 @@ async function getPlanLimitsFromConfig(planId) {
       return { maxFolders: 5, maxCalculators: 3, maxContacts: 10, maxStorage: 50 };
     }
     
-    const limits = {};
-    planConfig.resourceLimits.forEach(limit => {
-      switch(limit.name) {
-        case 'folders':
-          limits.maxFolders = limit.limit;
-          break;
-        case 'calculators':
-          limits.maxCalculators = limit.limit;
-          break;
-        case 'contacts':
-          limits.maxContacts = limit.limit;
-          break;
-        case 'storage':
-          limits.maxStorage = limit.limit;
-          break;
-      }
-    });
+    // Usar el campo 'features' en lugar de 'resourceLimits'
+    const features = planConfig.features || {};
+    const limits = {
+      maxFolders: features.maxFolders || 5,
+      maxCalculators: features.maxCalculators || 3,
+      maxContacts: features.maxContacts || 10,
+      maxStorage: features.maxStorage || 50
+    };
     
     return limits;
   } catch (error) {
