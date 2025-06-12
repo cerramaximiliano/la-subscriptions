@@ -1,5 +1,7 @@
 const { SESClient, SendEmailCommand, GetIdentityVerificationAttributesCommand, GetSendQuotaCommand } = require('@aws-sdk/client-ses');
 const logger = require('../utils/logger');
+const EmailTemplate = require('../models/EmailTemplate');
+const { fillTemplate, validateTemplateData } = require('../utils/templateHelper');
 
 // Configurar cliente SES
 const sesClient = new SESClient({
@@ -805,11 +807,52 @@ const emailTemplates = {
 };
 
 /**
+ * Obtiene un template de la base de datos o del código como fallback
+ */
+async function getEmailTemplate(templateName) {
+  try {
+    // Intentar obtener de la base de datos
+    const dbTemplate = await EmailTemplate.findOne({
+      name: templateName,
+      isActive: true
+    });
+
+    if (dbTemplate) {
+      logger.info(`Template '${templateName}' obtenido de la base de datos`);
+      return {
+        subject: dbTemplate.subject,
+        htmlBody: dbTemplate.htmlBody,
+        textBody: dbTemplate.textBody,
+        variables: dbTemplate.variables,
+        fromDB: true
+      };
+    }
+  } catch (error) {
+    logger.warn(`Error obteniendo template '${templateName}' de BD:`, error.message);
+  }
+
+  // Fallback al template en código
+  const codeTemplate = emailTemplates[templateName];
+  if (codeTemplate) {
+    logger.info(`Template '${templateName}' usando fallback del código`);
+    return {
+      subject: codeTemplate.subject,
+      htmlBody: null, // Se generará dinámicamente
+      textBody: null, // Se generará dinámicamente
+      html: codeTemplate.html, // Función generadora del template en código
+      fromDB: false
+    };
+  }
+
+  return null;
+}
+
+/**
  * Envía un email usando AWS SES
  */
 exports.sendEmail = async (to, templateName, data) => {
   try {
-    const template = emailTemplates[templateName];
+    const template = await getEmailTemplate(templateName);
     if (!template) {
       throw new Error(`Plantilla de email '${templateName}' no encontrada`);
     }
@@ -827,6 +870,40 @@ exports.sendEmail = async (to, templateName, data) => {
       modifiedData._notice = `[MODO TEST] Este email iba dirigido originalmente a: ${originalEmail}`;
     }
 
+    // Generar el contenido del email
+    let htmlContent, textContent, subjectContent;
+
+    if (template.fromDB) {
+      // Usar template de base de datos
+      // Validar que tenemos todas las variables necesarias
+      if (template.variables && template.variables.length > 0) {
+        const validation = validateTemplateData(template.variables, modifiedData);
+        if (!validation.isValid) {
+          logger.warn(`Variables faltantes para template '${templateName}': ${validation.missing.join(', ')}`);
+        }
+      }
+
+      // Rellenar las variables en el template
+      htmlContent = fillTemplate(template.htmlBody, modifiedData);
+      textContent = fillTemplate(template.textBody, modifiedData);
+      subjectContent = fillTemplate(template.subject, modifiedData);
+    } else {
+      // Usar template del código (función generadora)
+      htmlContent = template.html(modifiedData);
+      textContent = ''; // Los templates en código no tienen versión texto por ahora
+      subjectContent = template.subject;
+    }
+
+    // Agregar aviso de modo test si aplica
+    if (originalEmail !== actualRecipient) {
+      const testWarning = `<div style="background-color: #fffacd; border: 2px solid #ff6b6b; padding: 10px; margin-bottom: 20px;">
+        <strong>⚠️ MODO TEST:</strong> Este email estaba destinado a <strong>${originalEmail}</strong><br>
+        Fue redirigido a tu email porque está en la whitelist de pruebas.
+      </div>`;
+      htmlContent = testWarning + htmlContent;
+      subjectContent = `[TEST] ${subjectContent} (para: ${originalEmail})`;
+    }
+
     const params = {
       Source: process.env.EMAIL_MARKETING_DEFAULT_SENDER || 'noreply@tuapp.com',
       Destination: {
@@ -834,19 +911,12 @@ exports.sendEmail = async (to, templateName, data) => {
       },
       Message: {
         Subject: {
-          Data: originalEmail !== actualRecipient 
-            ? `[TEST] ${template.subject} (para: ${originalEmail})`
-            : template.subject,
+          Data: subjectContent,
           Charset: 'UTF-8'
         },
         Body: {
           Html: {
-            Data: originalEmail !== actualRecipient
-              ? `<div style="background-color: #fffacd; border: 2px solid #ff6b6b; padding: 10px; margin-bottom: 20px;">
-                  <strong>⚠️ MODO TEST:</strong> Este email estaba destinado a <strong>${originalEmail}</strong><br>
-                  Fue redirigido a tu email porque está en la whitelist de pruebas.
-                </div>` + template.html(modifiedData)
-              : template.html(data),
+            Data: htmlContent,
             Charset: 'UTF-8'
           }
         }
@@ -855,12 +925,20 @@ exports.sendEmail = async (to, templateName, data) => {
       ConfigurationSetName: process.env.SES_CONFIGURATION_SET || undefined
     };
 
+    // Agregar cuerpo de texto si está disponible
+    if (textContent) {
+      params.Message.Body.Text = {
+        Data: textContent,
+        Charset: 'UTF-8'
+      };
+    }
+
     const command = new SendEmailCommand(params);
     const response = await sesClient.send(command);
 
     logger.info(`Email enviado exitosamente via AWS SES`);
     logger.info(`MessageId: ${response.MessageId}`);
-    logger.info(`Template: ${templateName}, To: ${actualRecipient}${originalEmail !== actualRecipient ? ` (originalmente para: ${originalEmail})` : ''}`);
+    logger.info(`Template: ${templateName} (${template.fromDB ? 'BD' : 'código'}), To: ${actualRecipient}${originalEmail !== actualRecipient ? ` (originalmente para: ${originalEmail})` : ''}`);
 
     return response;
   } catch (error) {
@@ -900,9 +978,9 @@ exports.sendSubscriptionEmail = async (user, event, additionalData = {}) => {
       case 'canceled':
         // Si tiene immediate: true, usar template especial
         if (additionalData.immediate) {
-          templateName = 'immediatelyCanceled';
+          templateName = 'subscriptionImmediateCancellation';
         } else {
-          templateName = 'subscriptionCanceled';
+          templateName = 'subscriptionScheduledCancellation';
         }
         break;
         
@@ -911,11 +989,24 @@ exports.sendSubscriptionEmail = async (user, event, additionalData = {}) => {
         break;
 
       case 'gracePeriodReminder':
-        templateName = 'gracePeriodReminder';
+        // Determinar si hay exceso de límites
+        if (additionalData.exceedsLimits || 
+            (additionalData.foldersToArchive > 0 || 
+             additionalData.calculatorsToArchive > 0 || 
+             additionalData.contactsToArchive > 0)) {
+          templateName = 'gracePeriodReminderWithExcess';
+        } else {
+          templateName = 'gracePeriodReminderNoExcess';
+        }
         break;
 
       case 'gracePeriodExpired':
-        templateName = 'gracePeriodExpired';
+        // Determinar si hubo archivado
+        if (additionalData.totalArchived > 0) {
+          templateName = 'gracePeriodExpiredWithArchive';
+        } else {
+          templateName = 'gracePeriodExpiredNoArchive';
+        }
         break;
 
       case 'scheduledCancellation':
@@ -959,7 +1050,19 @@ exports.sendPaymentFailedEmail = async (to, data, type) => {
       throw new Error(`Tipo de email de pago fallido no válido: ${type}`);
     }
 
-    await this.sendEmail(to, templateName, data);
+    // Asegurar que los datos tengan el formato correcto para los templates
+    const emailData = {
+      ...data,
+      // Para el template paymentFailedFirst
+      nextRetryDate: data.nextRetryDate ? new Date(data.nextRetryDate).toLocaleDateString('es-ES') : 'No programado',
+      // Para el template paymentFailedFinal
+      suspensionDate: data.suspensionDate ? new Date(data.suspensionDate).toLocaleDateString('es-ES') : '',
+      // Para el template paymentFailedSuspension
+      gracePeriodEndDate: data.gracePeriodEndDate ? new Date(data.gracePeriodEndDate).toLocaleDateString('es-ES') : '',
+      supportEmail: process.env.SUPPORT_EMAIL || 'soporte@tuapp.com'
+    };
+
+    await this.sendEmail(to, templateName, emailData);
     
     // Log adicional si estamos en modo test
     if (global.currentWebhookTestMode) {

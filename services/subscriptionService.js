@@ -510,7 +510,7 @@ exports.handleSubscriptionDeleted = async (stripeSubscription) => {
       const user = await User.findById(subscription.user);
 
       if (user) {
-        await emailService.sendSubscriptionEmail(user, 'immediatelyCanceled', {
+        await emailService.sendSubscriptionEmail(user, 'canceled', {
           previousPlan: previousPlan,
           immediate: true,
           gracePeriodEnd: gracePeriodEnd.toLocaleDateString('es-ES'),
