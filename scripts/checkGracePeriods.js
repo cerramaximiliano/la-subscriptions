@@ -94,10 +94,26 @@ async function checkGracePeriods() {
     // Obtener estadísticas previas
     const stats = await getSubscriptionStats();
     logger.info('📈 Estadísticas actuales:');
+
     logger.info(`   - Suscripciones activas: ${stats.active}`);
+    if (stats.activeList.length > 0) {
+      stats.activeList.forEach(s => logger.info(`     • ${s.id} - ${s.email}`));
+    }
+
     logger.info(`   - Suscripciones con cancelación programada: ${stats.pendingCancellation}`);
+    if (stats.pendingCancellationList.length > 0) {
+      stats.pendingCancellationList.forEach(s => logger.info(`     • ${s.id} - ${s.email}`));
+    }
+
     logger.info(`   - Suscripciones en período de gracia: ${stats.inGracePeriod}`);
+    if (stats.inGracePeriodList.length > 0) {
+      stats.inGracePeriodList.forEach(s => logger.info(`     • ${s.id} - ${s.email}`));
+    }
+
     logger.info(`   - Períodos de gracia por vencer (3 días): ${stats.gracePeriodExpiringSoon}`);
+    if (stats.gracePeriodExpiringSoonList.length > 0) {
+      stats.gracePeriodExpiringSoonList.forEach(s => logger.info(`     • ${s.id} - ${s.email}`));
+    }
 
     // PASO 1: Verificar suscripciones expiradas que necesitan período de gracia
     logger.info('\n📋 PASO 1: Verificando suscripciones expiradas...');
@@ -344,28 +360,36 @@ async function getSubscriptionStats() {
     const now = new Date();
     const threeDaysFromNow = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
 
-    const [active, pendingCancellation, inGracePeriod, gracePeriodExpiringSoon] = await Promise.all([
-      Subscription.countDocuments({ status: 'active', plan: { $ne: 'free' } }),
-      Subscription.countDocuments({ cancelAtPeriodEnd: true }),
-      Subscription.countDocuments({ 'downgradeGracePeriod.expiresAt': { $gte: now } }),
-      Subscription.countDocuments({
+    const [activeList, pendingCancellationList, inGracePeriodList, gracePeriodExpiringSoonList] = await Promise.all([
+      Subscription.find({ status: 'active', plan: { $ne: 'free' } }).populate('user', 'email'),
+      Subscription.find({ cancelAtPeriodEnd: true }).populate('user', 'email'),
+      Subscription.find({ 'downgradeGracePeriod.expiresAt': { $gte: now } }).populate('user', 'email'),
+      Subscription.find({
         'downgradeGracePeriod.expiresAt': { $gte: now, $lte: threeDaysFromNow }
-      })
+      }).populate('user', 'email')
     ]);
 
     return {
-      active,
-      pendingCancellation,
-      inGracePeriod,
-      gracePeriodExpiringSoon
+      active: activeList.length,
+      activeList: activeList.map(s => ({ id: s._id, email: s.user?.email || 'N/A' })),
+      pendingCancellation: pendingCancellationList.length,
+      pendingCancellationList: pendingCancellationList.map(s => ({ id: s._id, email: s.user?.email || 'N/A' })),
+      inGracePeriod: inGracePeriodList.length,
+      inGracePeriodList: inGracePeriodList.map(s => ({ id: s._id, email: s.user?.email || 'N/A' })),
+      gracePeriodExpiringSoon: gracePeriodExpiringSoonList.length,
+      gracePeriodExpiringSoonList: gracePeriodExpiringSoonList.map(s => ({ id: s._id, email: s.user?.email || 'N/A' }))
     };
   } catch (error) {
     logger.error('Error obteniendo estadísticas:', error);
     return {
       active: 0,
+      activeList: [],
       pendingCancellation: 0,
+      pendingCancellationList: [],
       inGracePeriod: 0,
-      gracePeriodExpiringSoon: 0
+      inGracePeriodList: [],
+      gracePeriodExpiringSoon: 0,
+      gracePeriodExpiringSoonList: []
     };
   }
 }

@@ -9,13 +9,13 @@ const SubscriptionSchema = new Schema({
     required: true
   },
   stripeCustomerId: {
-    type: String
+    type: Schema.Types.Mixed
   },
   stripeSubscriptionId: {
-    type: String
+    type: Schema.Types.Mixed
   },
   stripePriceId: {
-    type: String
+    type: Schema.Types.Mixed
   },
   plan: {
     type: String,
@@ -121,7 +121,7 @@ const SubscriptionSchema = new Schema({
   
   accountStatus: {
     type: String,
-    enum: ['active', 'at_risk', 'suspended', 'grace_period'],
+    enum: ['active', 'at_risk', 'suspended', 'grace_period', 'archived'],
     default: 'active'
   },
   
@@ -193,6 +193,28 @@ const SubscriptionSchema = new Schema({
     }
   }
 }, { timestamps: true });
+
+// Métodos helper para obtener IDs de Stripe según el entorno
+SubscriptionSchema.methods.getStripeCustomerId = function(mode = 'live') {
+  if (!this.stripeCustomerId) return null;
+  if (typeof this.stripeCustomerId === 'string') return this.stripeCustomerId;
+  if (typeof this.stripeCustomerId === 'object') return this.stripeCustomerId[mode] || this.stripeCustomerId.live;
+  return null;
+};
+
+SubscriptionSchema.methods.getStripeSubscriptionId = function(mode = 'live') {
+  if (!this.stripeSubscriptionId) return null;
+  if (typeof this.stripeSubscriptionId === 'string') return this.stripeSubscriptionId;
+  if (typeof this.stripeSubscriptionId === 'object') return this.stripeSubscriptionId[mode] || this.stripeSubscriptionId.live;
+  return null;
+};
+
+SubscriptionSchema.methods.getStripePriceId = function(mode = 'live') {
+  if (!this.stripePriceId) return null;
+  if (typeof this.stripePriceId === 'string') return this.stripePriceId;
+  if (typeof this.stripePriceId === 'object') return this.stripePriceId[mode] || this.stripePriceId.live;
+  return null;
+};
 
 // Método para actualizar límites y funcionalidades según el plan
 SubscriptionSchema.methods.updatePlanFeatures = function () {

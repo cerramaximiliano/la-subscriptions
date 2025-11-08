@@ -70,7 +70,7 @@ const emailTemplates = {
               <p>Ahora tienes acceso a:</p>
               <ul>
                 <li>Máximo de carpetas: ${data.maxFolders}</li>
-                <li>Máximo de calculadoras: ${data.maxCalculators}</li>
+                <li>Máximo de cálculos: ${data.maxCalculators}</li>
                 <li>Máximo de contactos: ${data.maxContacts}</li>
               </ul>
               <p>Tu próxima fecha de facturación es: <strong>${data.nextBillingDate}</strong></p>
@@ -124,7 +124,7 @@ const emailTemplates = {
               <p><strong>Nuevos límites del plan gratuito:</strong></p>
               <ul>
                 <li>Máximo de carpetas: 5</li>
-                <li>Máximo de calculadoras: 3</li>
+                <li>Máximo de cálculos: 3</li>
                 <li>Máximo de contactos: 10</li>
               </ul>
               
@@ -172,22 +172,22 @@ const emailTemplates = {
               
               <p><strong>Estado actual de tus recursos:</strong></p>
               <ul>
-                <li>Carpetas: ${data.currentFolders} / 5 (límite plan gratuito)</li>
-                <li>Calculadoras: ${data.currentCalculators} / 3 (límite plan gratuito)</li>
-                <li>Contactos: ${data.currentContacts} / 10 (límite plan gratuito)</li>
+                <li>Carpetas: ${data.currentFolders} / ${data.planLimits?.maxFolders || 5} (límite plan ${data.targetPlan || 'gratuito'})</li>
+                <li>Cálculos: ${data.currentCalculators} / ${data.planLimits?.maxCalculators || 3} (límite plan ${data.targetPlan || 'gratuito'})</li>
+                <li>Contactos: ${data.currentContacts} / ${data.planLimits?.maxContacts || 10} (límite plan ${data.targetPlan || 'gratuito'})</li>
               </ul>
-              
-              ${data.exceedsLimits ? `
+
+              ${(data.foldersToArchive > 0 || data.calculatorsToArchive > 0 || data.contactsToArchive > 0) ? `
                 <p><strong>⚠️ Elementos que serán archivados:</strong></p>
                 <ul>
                   ${data.foldersToArchive > 0 ? `<li>${data.foldersToArchive} carpetas</li>` : ''}
-                  ${data.calculatorsToArchive > 0 ? `<li>${data.calculatorsToArchive} calculadoras</li>` : ''}
+                  ${data.calculatorsToArchive > 0 ? `<li>${data.calculatorsToArchive} cálculos</li>` : ''}
                   ${data.contactsToArchive > 0 ? `<li>${data.contactsToArchive} contactos</li>` : ''}
                 </ul>
               ` : ''}
-              
+
               <p style="text-align: center; margin-top: 30px;">
-                <a href="${process.env.BASE_URL}/subscription" class="button">Reactivar Suscripción</a>
+                <a href="https://lawanalytics.app/apps/profiles/account/settings" class="button">Reactivar Suscripción</a>
               </p>
             </div>
             <div class="footer">
@@ -236,7 +236,7 @@ const emailTemplates = {
                 <ul>
                   ${data.foldersArchived > 0 ? `<li>Carpetas archivadas: 
   ${data.foldersArchived}</li>` : ''}
-                  ${data.calculatorsArchived > 0 ? `<li>Calculadoras archivadas: 
+                  ${data.calculatorsArchived > 0 ? `<li>Cálculos archivados: 
   ${data.calculatorsArchived}</li>` : ''}
                   ${data.contactsArchived > 0 ? `<li>Contactos archivados: 
   ${data.contactsArchived}</li>` : ''}
@@ -258,7 +258,7 @@ const emailTemplates = {
               <h3>📊 Límites actuales de tu plan ${data.targetPlan || 'gratuito'}:</h3>
               <ul>
                 <li>Máximo de carpetas: ${data.planLimits?.maxFolders || 5}</li>
-                <li>Máximo de calculadoras: ${data.planLimits?.maxCalculators || 3}</li>
+                <li>Máximo de cálculos: ${data.planLimits?.maxCalculators || 3}</li>
                 <li>Máximo de contactos: ${data.planLimits?.maxContacts || 10}</li>
                 <li>Almacenamiento: ${data.planLimits?.storageLimit || 50} MB</li>
               </ul>
@@ -348,7 +348,7 @@ const emailTemplates = {
             <p><strong>Límites del plan gratuito:</strong></p>
             <ul>
               <li>Máximo ${data.foldersLimit} carpetas</li>
-              <li>Máximo ${data.calculatorsLimit} calculadoras</li>
+              <li>Máximo ${data.calculatorsLimit} cálculos</li>
               <li>Máximo ${data.contactsLimit} contactos</li>
             </ul>
             
@@ -418,7 +418,7 @@ const emailTemplates = {
                   <td>${data.newLimits.maxFolders}</td>
                 </tr>
                 <tr>
-                  <td>Calculadoras</td>
+                  <td>Cálculos</td>
                   <td>${data.previousPlan === 'Premium' ? 'Ilimitadas' : '20'}</td>
                   <td>${data.newLimits.maxCalculators}</td>
                 </tr>
@@ -473,7 +473,7 @@ const emailTemplates = {
               <ul>
                 <li>Carpetas: ${data.newLimits.maxFolders === 999999 ? 'Ilimitadas' :
         data.newLimits.maxFolders}</li>
-                <li>Calculadoras: ${data.newLimits.maxCalculators === 999999 ? 'Ilimitadas'
+                <li>Cálculos: ${data.newLimits.maxCalculators === 999999 ? 'Ilimitados'
         : data.newLimits.maxCalculators}</li>
                 <li>Contactos: ${data.newLimits.maxContacts === 999999 ? 'Ilimitados' :
         data.newLimits.maxContacts}</li>
@@ -585,7 +585,7 @@ const emailTemplates = {
             <h3>Tu uso actual:</h3>
             <ul>
               <li>Carpetas: ${data.currentUsage.folders}</li>
-              <li>Calculadoras: ${data.currentUsage.calculators}</li>
+              <li>Cálculos: ${data.currentUsage.calculators}</li>
               <li>Contactos: ${data.currentUsage.contacts}</li>
             </ul>
             

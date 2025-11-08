@@ -387,6 +387,58 @@ async function performAutoArchiving(userId, targetPlan) {
 }
 
 /**
+ * Calcular recursos del usuario sin archivar
+ */
+async function calculateUserResources(userId, targetPlan) {
+  try {
+    const limits = getPlanLimits(targetPlan);
+
+    const result = {
+      current: {
+        folders: 0,
+        calculators: 0,
+        contacts: 0
+      },
+      toArchive: {
+        folders: 0,
+        calculators: 0,
+        contacts: 0
+      },
+      limits: limits
+    };
+
+    // Contar carpetas activas
+    const activeFolders = await Folder.countDocuments({
+      userId: userId,
+      archived: { $ne: true }
+    });
+    result.current.folders = activeFolders;
+    result.toArchive.folders = Math.max(0, activeFolders - limits.maxFolders);
+
+    // Contar calculadoras activas
+    const activeCalculators = await Calculator.countDocuments({
+      userId: userId,
+      archived: { $ne: true }
+    });
+    result.current.calculators = activeCalculators;
+    result.toArchive.calculators = Math.max(0, activeCalculators - limits.maxCalculators);
+
+    // Contar contactos activos
+    const activeContacts = await Contact.countDocuments({
+      userId: userId,
+      archived: { $ne: true }
+    });
+    result.current.contacts = activeContacts;
+    result.toArchive.contacts = Math.max(0, activeContacts - limits.maxContacts);
+
+    return result;
+  } catch (error) {
+    logger.error('Error calculando recursos del usuario:', error);
+    return null;
+  }
+}
+
+/**
  * Enviar recordatorios de períodos próximos a vencer
  */
 async function sendGracePeriodReminders() {
@@ -437,38 +489,106 @@ async function sendGracePeriodReminders() {
           const daysRemaining = Math.ceil(
             (subscription.downgradeGracePeriod.expiresAt - now) / (1000 * 60 * 60 * 24)
           );
-          
+
+          const targetPlan = subscription.downgradeGracePeriod.targetPlan || 'free';
+
+          // Calcular recursos del usuario
+          const resources = await calculateUserResources(user._id, targetPlan);
+
+          if (!resources) {
+            logger.error(`No se pudo calcular recursos para usuario ${user._id}`);
+            continue;
+          }
+
+          const emailData = {
+            planName: subscription.plan,
+            targetPlan: targetPlan,
+            daysRemaining: daysRemaining,
+            gracePeriodEnd: subscription.downgradeGracePeriod.expiresAt.toLocaleDateString('es-ES'),
+            // Recursos actuales
+            currentFolders: resources.current.folders,
+            currentCalculators: resources.current.calculators,
+            currentContacts: resources.current.contacts,
+            // Recursos a archivar
+            foldersToArchive: resources.toArchive.folders,
+            calculatorsToArchive: resources.toArchive.calculators,
+            contactsToArchive: resources.toArchive.contacts,
+            // Límites del plan objetivo
+            planLimits: {
+              maxFolders: resources.limits.maxFolders,
+              maxCalculators: resources.limits.maxCalculators,
+              maxContacts: resources.limits.maxContacts
+            }
+          };
+
           if (daysRemaining <= 1 && !subscription.downgradeGracePeriod.reminder1DaySent) {
-            await emailService.sendPaymentEmail(user, 'gracePeriod1Day', {
-              planName: subscription.plan,
-              daysRemaining: 1
-            });
-            subscription.downgradeGracePeriod.reminder1DaySent = true;
+            emailData.daysRemaining = 1;
+            await emailService.sendSubscriptionEmail(user, 'gracePeriodReminder', emailData);
+            await Subscription.updateOne(
+              { _id: subscription._id },
+              { $set: { 'downgradeGracePeriod.reminder1DaySent': true } }
+            );
             sentCount++;
           } else if (daysRemaining <= 3 && !subscription.downgradeGracePeriod.reminder3DaysSent) {
-            await emailService.sendPaymentEmail(user, 'gracePeriod3Days', {
-              planName: subscription.plan,
-              daysRemaining: 3
-            });
-            subscription.downgradeGracePeriod.reminder3DaysSent = true;
+            emailData.daysRemaining = 3;
+            await emailService.sendSubscriptionEmail(user, 'gracePeriodReminder', emailData);
+            await Subscription.updateOne(
+              { _id: subscription._id },
+              { $set: { 'downgradeGracePeriod.reminder3DaysSent': true } }
+            );
             sentCount++;
           }
         } else if (subscription.accountStatus === 'grace_period') {
           // Recordatorio de pago fallido
           if (!subscription.paymentFailures.notificationsSent.gracePeriodReminder) {
-            await emailService.sendPaymentEmail(user, 'paymentGracePeriodReminder', {
+            const targetPlan = 'free';
+
+            // Calcular recursos del usuario
+            const resources = await calculateUserResources(user._id, targetPlan);
+
+            if (!resources) {
+              logger.error(`No se pudo calcular recursos para usuario ${user._id}`);
+              continue;
+            }
+
+            // Calcular fecha de expiración del período de gracia (15 días desde primer fallo)
+            const gracePeriodEndDate = new Date(subscription.paymentFailures.firstFailedAt);
+            gracePeriodEndDate.setDate(gracePeriodEndDate.getDate() + 15);
+
+            await emailService.sendSubscriptionEmail(user, 'gracePeriodReminder', {
               planName: subscription.plan,
-              daysRemaining: 15
+              targetPlan: targetPlan,
+              daysRemaining: 15,
+              gracePeriodEnd: gracePeriodEndDate.toLocaleDateString('es-ES'),
+              // Recursos actuales
+              currentFolders: resources.current.folders,
+              currentCalculators: resources.current.calculators,
+              currentContacts: resources.current.contacts,
+              // Recursos a archivar
+              foldersToArchive: resources.toArchive.folders,
+              calculatorsToArchive: resources.toArchive.calculators,
+              contactsToArchive: resources.toArchive.contacts,
+              // Límites del plan objetivo
+              planLimits: {
+                maxFolders: resources.limits.maxFolders,
+                maxCalculators: resources.limits.maxCalculators,
+                maxContacts: resources.limits.maxContacts
+              }
             });
-            subscription.paymentFailures.notificationsSent.gracePeriodReminder = { 
-              sent: true, 
-              sentAt: new Date() 
-            };
+            await Subscription.updateOne(
+              { _id: subscription._id },
+              {
+                $set: {
+                  'paymentFailures.notificationsSent.gracePeriodReminder': {
+                    sent: true,
+                    sentAt: new Date()
+                  }
+                }
+              }
+            );
             sentCount++;
           }
         }
-        
-        await subscription.save();
         
       } catch (error) {
         logger.error(`Error enviando recordatorio para ${subscription._id}:`, error);
