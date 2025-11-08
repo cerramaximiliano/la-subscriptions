@@ -120,6 +120,7 @@ async function getResourceCounts(userId) {
 */
 async function archiveFolders(userId, maxAllowed) {
   const Folder = require('../models/Folder');
+  const storageHelper = require('../utils/storageHelper');
 
   try {
     // Contar carpetas activas
@@ -156,6 +157,12 @@ async function archiveFolders(userId, maxAllowed) {
     );
 
     logger.info(`Archivadas ${result.modifiedCount} carpetas para usuario ${userId}`);
+
+    // Actualizar el almacenamiento (incrementar storage por carpetas archivadas)
+    if (result.modifiedCount > 0) {
+      await storageHelper.updateStorageBulk(userId, 'folder', result.modifiedCount);
+    }
+
     return result.modifiedCount;
 
   } catch (error) {
@@ -169,6 +176,7 @@ async function archiveFolders(userId, maxAllowed) {
  */
 async function archiveCalculators(userId, maxAllowed) {
   const Calculator = require('../models/Calculator');
+  const storageHelper = require('../utils/storageHelper');
 
   try {
     const activeCount = await Calculator.countDocuments({
@@ -201,8 +209,14 @@ async function archiveCalculators(userId, maxAllowed) {
       }
     );
 
-    logger.info(`Archivadas ${result.modifiedCount} calculadoras para usuario 
+    logger.info(`Archivadas ${result.modifiedCount} calculadoras para usuario
   ${userId}`);
+
+    // Actualizar el almacenamiento (incrementar storage por calculadoras archivadas)
+    if (result.modifiedCount > 0) {
+      await storageHelper.updateStorageBulk(userId, 'calculator', result.modifiedCount);
+    }
+
     return result.modifiedCount;
 
   } catch (error) {
@@ -216,6 +230,7 @@ async function archiveCalculators(userId, maxAllowed) {
  */
 async function archiveContacts(userId, maxAllowed) {
   const Contact = require('../models/Contact');
+  const storageHelper = require('../utils/storageHelper');
 
   try {
     const activeCount = await Contact.countDocuments({
@@ -248,8 +263,14 @@ async function archiveContacts(userId, maxAllowed) {
       }
     );
 
-    logger.info(`Archivados ${result.modifiedCount} contactos para usuario 
+    logger.info(`Archivados ${result.modifiedCount} contactos para usuario
   ${userId}`);
+
+    // Actualizar el almacenamiento (incrementar storage por contactos archivados)
+    if (result.modifiedCount > 0) {
+      await storageHelper.updateStorageBulk(userId, 'contact', result.modifiedCount);
+    }
+
     return result.modifiedCount;
 
   } catch (error) {
