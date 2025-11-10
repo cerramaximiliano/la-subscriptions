@@ -1121,8 +1121,7 @@ exports.sendGracePeriodReminders = async () => {
     const now = new Date();
     const threeDaysFromNow = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
 
-    // Buscar suscripciones con período de gracia que vence en 3 
-    días
+    // Buscar suscripciones con período de gracia que vence en 3 días
     const subscriptions = await Subscription.find({
       'downgradeGracePeriod.expiresAt': {
         $gte: now,
