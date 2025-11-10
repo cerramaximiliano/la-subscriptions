@@ -1,0 +1,349 @@
+{
+  "emailFlows": [
+    {
+      "flowId": "subscription-lifecycle",
+      "flowName": "Ciclo de Vida de Suscripción",
+      "description": "Emails enviados durante el ciclo de vida normal de una suscripción",
+      "emails": [
+        {
+          "templateName": "subscriptionCreated",
+          "category": "subscription",
+          "subject": "¡Bienvenido a tu nueva suscripción!",
+          "trigger": "Usuario crea suscripción o hace upgrade",
+          "event": "created / upgraded",
+          "timing": "Inmediato",
+          "priority": "high",
+          "variables": [
+            "userName",
+            "planName",
+            "maxFolders",
+            "maxCalculators",
+            "maxContacts",
+            "nextBillingDate"
+          ],
+          "conditions": null
+        },
+        {
+          "templateName": "subscriptionImmediateCancellation",
+          "category": "subscription",
+          "subject": "Tu suscripción ha sido cancelada",
+          "trigger": "Usuario cancela sin período de gracia",
+          "event": "canceled (immediate: true)",
+          "timing": "Inmediato",
+          "priority": "high",
+          "variables": [
+            "userName",
+            "previousPlan",
+            "gracePeriodEnd",
+            "foldersLimit",
+            "calculatorsLimit",
+            "contactsLimit"
+          ],
+          "conditions": {
+            "immediate": true
+          }
+        },
+        {
+          "templateName": "subscriptionScheduledCancellation",
+          "category": "subscription",
+          "subject": "Tu suscripción será cancelada al final del período",
+          "trigger": "Usuario cancela al final del período",
+          "event": "canceled (immediate: false)",
+          "timing": "Inmediato",
+          "priority": "medium",
+          "variables": [
+            "userName",
+            "previousPlan",
+            "gracePeriodEnd",
+            "foldersLimit",
+            "calculatorsLimit",
+            "contactsLimit"
+          ],
+          "conditions": {
+            "immediate": false
+          }
+        },
+        {
+          "templateName": "planDowngraded",
+          "category": "subscription",
+          "subject": "Tu plan ha sido cambiado",
+          "trigger": "Downgrade completado",
+          "event": "planDowngraded",
+          "timing": "Después de completar downgrade",
+          "priority": "medium",
+          "variables": [
+            "userName",
+            "previousPlan",
+            "planName",
+            "planLimits"
+          ],
+          "conditions": null
+        },
+        {
+          "templateName": "planUpgraded",
+          "category": "subscription",
+          "subject": "¡Tu plan ha sido actualizado!",
+          "trigger": "Upgrade completado",
+          "event": "planUpgraded",
+          "timing": "Después de completar upgrade",
+          "priority": "medium",
+          "variables": [
+            "userName",
+            "previousPlan",
+            "planName",
+            "planLimits"
+          ],
+          "conditions": null
+        }
+      ]
+    },
+    {
+      "flowId": "payment-failures",
+      "flowName": "Secuencia de Pagos Fallidos",
+      "description": "Emails enviados cuando hay problemas con los pagos",
+      "sequence": true,
+      "totalSteps": 5,
+      "emails": [
+        {
+          "step": 1,
+          "templateName": "paymentFailedFirst",
+          "category": "subscription",
+          "subject": "Problema con tu pago",
+          "trigger": "Primer intento de pago falla",
+          "event": "payment failed (type: first)",
+          "timing": "Inmediato (día 0)",
+          "priority": "high",
+          "variables": [
+            "userName",
+            "planName",
+            "amount",
+            "nextRetryDate",
+            "supportEmail"
+          ],
+          "nextStep": {
+            "delay": "~3 días",
+            "action": "Segundo intento de pago"
+          }
+        },
+        {
+          "step": 2,
+          "templateName": "paymentFailedSecond",
+          "category": "subscription",
+          "subject": "Segundo intento de pago fallido",
+          "trigger": "Segundo intento de pago falla",
+          "event": "payment failed (type: second)",
+          "timing": "~3 días después del primer fallo",
+          "priority": "high",
+          "variables": [
+            "userName",
+            "planName",
+            "amount",
+            "nextRetryDate",
+            "supportEmail"
+          ],
+          "nextStep": {
+            "delay": "~4 días",
+            "action": "Tercer intento de pago"
+          }
+        },
+        {
+          "step": 3,
+          "templateName": "paymentFailedFinal",
+          "category": "subscription",
+          "subject": "Última advertencia - Pago pendiente",
+          "trigger": "Tercer intento de pago falla",
+          "event": "payment failed (type: final)",
+          "timing": "~7 días después del primer fallo",
+          "priority": "critical",
+          "variables": [
+            "userName",
+            "planName",
+            "amount",
+            "suspensionDate",
+            "supportEmail"
+          ],
+          "nextStep": {
+            "delay": "~3 días",
+            "action": "Cuarto intento de pago"
+          }
+        },
+        {
+          "step": 4,
+          "templateName": "paymentFailedSuspension",
+          "category": "subscription",
+          "subject": "Tu cuenta ha sido suspendida",
+          "trigger": "Cuarto intento de pago falla",
+          "event": "payment failed (type: suspension)",
+          "timing": "~10 días después del primer fallo",
+          "priority": "critical",
+          "variables": [
+            "userName",
+            "planName",
+            "gracePeriodEndDate",
+            "supportEmail"
+          ],
+          "nextStep": {
+            "delay": "15 días",
+            "action": "Downgrade a Free automático"
+          }
+        },
+        {
+          "step": "recovery",
+          "templateName": "paymentRecovered",
+          "category": "subscription",
+          "subject": "¡Tu pago ha sido procesado exitosamente!",
+          "trigger": "Pago exitoso después de fallos",
+          "event": "payment recovered",
+          "timing": "Cuando se recupera el pago (en cualquier momento)",
+          "priority": "medium",
+          "variables": [
+            "userName",
+            "planName",
+            "amount"
+          ],
+          "nextStep": null
+        }
+      ]
+    },
+    {
+      "flowId": "grace-period-downgrade",
+      "flowName": "Período de Gracia (Downgrade)",
+      "description": "Emails enviados durante el período de gracia antes del downgrade",
+      "sequence": true,
+      "totalSteps": 4,
+      "cronJob": {
+        "schedule": "0 * * * *",
+        "description": "Cada hora en punto",
+        "processor": "scripts/gracePeriodProcessor.js"
+      },
+      "emails": [
+        {
+          "step": 1,
+          "templateName": "gracePeriodReminderWithExcess",
+          "category": "subscription",
+          "subject": "⚠️ Acción requerida - Tu período de gracia vence en {{daysRemaining}} días",
+          "trigger": "3 o 1 día antes de expiración + usuario excede límites",
+          "event": "gracePeriodReminder",
+          "timing": "3 días antes O 1 día antes",
+          "priority": "high",
+          "variables": [
+            "userName",
+            "daysRemaining",
+            "gracePeriodEnd",
+            "currentFolders",
+            "currentCalculators",
+            "currentContacts",
+            "foldersToArchive",
+            "calculatorsToArchive",
+            "contactsToArchive",
+            "planLimits.maxFolders",
+            "planLimits.maxCalculators",
+            "planLimits.maxContacts",
+            "targetPlan"
+          ],
+          "conditions": {
+            "exceedsLimits": "foldersToArchive > 0 || calculatorsToArchive > 0 || contactsToArchive > 0"
+          },
+          "flags": {
+            "3days": "reminder3DaysSent",
+            "1day": "reminder1DaySent"
+          }
+        },
+        {
+          "step": 1,
+          "templateName": "gracePeriodReminderNoExcess",
+          "category": "subscription",
+          "subject": "Tu período de gracia vence en {{daysRemaining}} días",
+          "trigger": "3 o 1 día antes de expiración + usuario NO excede límites",
+          "event": "gracePeriodReminder",
+          "timing": "3 días antes O 1 día antes",
+          "priority": "medium",
+          "variables": [
+            "userName",
+            "daysRemaining",
+            "gracePeriodEnd",
+            "currentFolders",
+            "currentCalculators",
+            "currentContacts",
+            "planLimits.maxFolders",
+            "planLimits.maxCalculators",
+            "planLimits.maxContacts",
+            "targetPlan"
+          ],
+          "conditions": {
+            "exceedsLimits": "foldersToArchive === 0 && calculatorsToArchive === 0 && contactsToArchive === 0"
+          },
+          "flags": {
+            "3days": "reminder3DaysSent",
+            "1day": "reminder1DaySent"
+          }
+        },
+        {
+          "step": 2,
+          "templateName": "gracePeriodExpiredWithArchive",
+          "category": "subscription",
+          "subject": "Tus elementos han sido archivados automáticamente",
+          "trigger": "Período de gracia expira + auto-archivado ejecutado",
+          "event": "gracePeriodExpired",
+          "timing": "Al expirar el período de gracia",
+          "priority": "high",
+          "variables": [
+            "userName",
+            "planName",
+            "targetPlan",
+            "foldersArchived",
+            "calculatorsArchived",
+            "contactsArchived",
+            "totalArchived",
+            "planLimits"
+          ],
+          "conditions": {
+            "totalArchived": "> 0"
+          }
+        },
+        {
+          "step": 2,
+          "templateName": "gracePeriodExpiredNoArchive",
+          "category": "subscription",
+          "subject": "Tu período de gracia ha expirado",
+          "trigger": "Período de gracia expira + sin elementos a archivar",
+          "event": "gracePeriodExpired",
+          "timing": "Al expirar el período de gracia",
+          "priority": "medium",
+          "variables": [
+            "userName",
+            "planName",
+            "targetPlan",
+            "planLimits"
+          ],
+          "conditions": {
+            "totalArchived": "=== 0"
+          }
+        }
+      ]
+    }
+  ],
+  "commonVariables": {
+    "alwaysIncluded": [
+      "userName",
+      "userEmail"
+    ],
+    "description": "Estas variables se agregan automáticamente a todos los emails"
+  },
+  "configuration": {
+    "testMode": {
+      "variable": "global.currentWebhookTestMode",
+      "whitelist": "process.env.TEST_EMAIL_WHITELIST",
+      "description": "En modo test, los emails se redirigen a la whitelist"
+    },
+    "variableSyntax": "Handlebars: {{variable}}",
+    "dateFormat": ".toLocaleDateString('es-ES')",
+    "accountManagementUrl": "https://lawanalytics.app/apps/profiles/account/settings"
+  },
+  "metadata": {
+    "version": "1.0.0",
+    "lastUpdated": "2025-11-10",
+    "totalTemplates": 15,
+    "totalFlows": 3
+  }
+}
