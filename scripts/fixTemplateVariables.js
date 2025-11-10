@@ -42,6 +42,44 @@ function convertVariableSyntax(text) {
 }
 
 /**
+ * Corrige URLs incorrectas en templates
+ */
+function fixIncorrectURLs(text) {
+  if (!text || typeof text !== 'string') return text;
+
+  // Reemplazar URLs incorrectas por la correcta
+  // Manejar diferentes variaciones de la URL
+  let result = text;
+
+  // Caso 1: https://www.lawanalytics.app/subscription
+  result = result.replace(/https?:\/\/www\.lawanalytics\.app\/subscription/gi,
+                          'https://lawanalytics.app/apps/profiles/account/settings');
+
+  // Caso 2: https://lawanalytics.app/subscription
+  result = result.replace(/https?:\/\/lawanalytics\.app\/subscription/gi,
+                          'https://lawanalytics.app/apps/profiles/account/settings');
+
+  // Caso 3: ${process.env.BASE_URL}/subscription (en templates de código)
+  result = result.replace(/\$\{process\.env\.BASE_URL\}\/subscription/gi,
+                          'https://lawanalytics.app/apps/profiles/account/settings');
+
+  // Caso 4: {{BASE_URL}}/subscription (si se usa esta sintaxis)
+  result = result.replace(/\{\{BASE_URL\}\}\/subscription/gi,
+                          'https://lawanalytics.app/apps/profiles/account/settings');
+
+  return result;
+}
+
+/**
+ * Verifica si un template tiene URLs incorrectas
+ */
+function hasIncorrectURLs(text) {
+  if (!text || typeof text !== 'string') return false;
+  return /lawanalytics\.app\/subscription/i.test(text) ||
+         /BASE_URL.*\/subscription/i.test(text);
+}
+
+/**
  * Verifica si un template tiene variables con sintaxis incorrecta
  */
 function hasIncorrectSyntax(text) {
@@ -56,9 +94,10 @@ async function fixTemplate(template, dryRun = true) {
   const changes = [];
   let needsUpdate = false;
 
-  // Verificar subject
+  // Verificar sintaxis de variables en subject
   if (hasIncorrectSyntax(template.subject)) {
     changes.push({
+      type: 'variables',
       field: 'subject',
       before: template.subject.substring(0, 100),
       after: convertVariableSyntax(template.subject).substring(0, 100)
@@ -66,20 +105,54 @@ async function fixTemplate(template, dryRun = true) {
     needsUpdate = true;
   }
 
-  // Verificar htmlBody
+  // Verificar URLs incorrectas en subject
+  if (hasIncorrectURLs(template.subject)) {
+    changes.push({
+      type: 'urls',
+      field: 'subject',
+      issue: 'URL incorrecta encontrada'
+    });
+    needsUpdate = true;
+  }
+
+  // Verificar sintaxis de variables en htmlBody
   if (hasIncorrectSyntax(template.htmlBody)) {
     changes.push({
+      type: 'variables',
       field: 'htmlBody',
       variablesFound: (template.htmlBody.match(/\$\{[^}]+\}/g) || []).length
     });
     needsUpdate = true;
   }
 
-  // Verificar textBody
+  // Verificar URLs incorrectas en htmlBody
+  if (hasIncorrectURLs(template.htmlBody)) {
+    const urlMatches = (template.htmlBody.match(/lawanalytics\.app\/subscription/gi) || []).length;
+    changes.push({
+      type: 'urls',
+      field: 'htmlBody',
+      urlsFound: urlMatches
+    });
+    needsUpdate = true;
+  }
+
+  // Verificar sintaxis de variables en textBody
   if (hasIncorrectSyntax(template.textBody)) {
     changes.push({
+      type: 'variables',
       field: 'textBody',
       variablesFound: (template.textBody.match(/\$\{[^}]+\}/g) || []).length
+    });
+    needsUpdate = true;
+  }
+
+  // Verificar URLs incorrectas en textBody
+  if (hasIncorrectURLs(template.textBody)) {
+    const urlMatches = (template.textBody.match(/lawanalytics\.app\/subscription/gi) || []).length;
+    changes.push({
+      type: 'urls',
+      field: 'textBody',
+      urlsFound: urlMatches
     });
     needsUpdate = true;
   }
@@ -90,19 +163,33 @@ async function fixTemplate(template, dryRun = true) {
     logger.info(`   Cambios necesarios:`);
 
     changes.forEach(change => {
-      if (change.before) {
-        logger.info(`   - ${change.field}:`);
-        logger.info(`     ANTES: ${change.before}`);
-        logger.info(`     DESPUÉS: ${change.after}`);
-      } else {
-        logger.info(`   - ${change.field}: ${change.variablesFound} variables a convertir`);
+      if (change.type === 'variables') {
+        if (change.before) {
+          logger.info(`   - ${change.field} (variables):`);
+          logger.info(`     ANTES: ${change.before}`);
+          logger.info(`     DESPUÉS: ${change.after}`);
+        } else {
+          logger.info(`   - ${change.field}: ${change.variablesFound} variables a convertir`);
+        }
+      } else if (change.type === 'urls') {
+        if (change.urlsFound) {
+          logger.info(`   - ${change.field}: ${change.urlsFound} URLs incorrectas a corregir`);
+        } else {
+          logger.info(`   - ${change.field}: ${change.issue}`);
+        }
       }
     });
 
     if (!dryRun) {
+      // Aplicar correcciones de sintaxis de variables
       template.subject = convertVariableSyntax(template.subject);
       template.htmlBody = convertVariableSyntax(template.htmlBody);
       template.textBody = convertVariableSyntax(template.textBody);
+
+      // Aplicar correcciones de URLs
+      template.subject = fixIncorrectURLs(template.subject);
+      template.htmlBody = fixIncorrectURLs(template.htmlBody);
+      template.textBody = fixIncorrectURLs(template.textBody);
 
       await template.save();
       logger.info(`   ✅ Template actualizado\n`);
