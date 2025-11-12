@@ -109,6 +109,7 @@ function displayTaskConfig(config) {
 
   logger.info(`\n📅 Programación:`);
   logger.info(`  Expresión cron: ${config.cronExpression}`);
+  logger.info(`  Zona horaria: ${config.timezone || 'No configurada (usando TZ del servidor)'}`);
   logger.info(`  Prioridad: ${config.priority}/10`);
   logger.info(`  Próxima ejecución: ${config.nextExecution ? config.nextExecution.toLocaleString('es-ES') : 'No calculada'}`);
 

@@ -82,18 +82,22 @@ async function syncTasksFromDatabase() {
 
       // Si la tarea está habilitada
       if (task.enabled) {
-        // Si ya está programada, verificar si cambió la expresión cron
+        // Si ya está programada, verificar si cambió la expresión cron o timezone
         if (scheduledTasks.has(taskKey)) {
           const existingTask = scheduledTasks.get(taskKey);
 
-          // Si cambió la expresión cron, reprogramar
-          if (existingTask.cronExpression !== task.cronExpression) {
-            logger.info(`🔄 Reprogramando "${taskKey}": ${existingTask.cronExpression} → ${task.cronExpression}`);
+          // Si cambió la expresión cron o timezone, reprogramar
+          if (existingTask.cronExpression !== task.cronExpression ||
+              existingTask.timezone !== task.timezone) {
+            const tzInfo = existingTask.timezone !== task.timezone
+              ? ` (timezone: ${existingTask.timezone} → ${task.timezone})`
+              : '';
+            logger.info(`🔄 Reprogramando "${taskKey}": ${existingTask.cronExpression} → ${task.cronExpression}${tzInfo}`);
             existingTask.task.stop();
             scheduledTasks.delete(taskKey);
             scheduleTask(task);
           } else {
-            logger.info(`✅ "${taskKey}" ya está programado: ${task.cronExpression}`);
+            logger.info(`✅ "${taskKey}" ya está programado: ${task.cronExpression} (${task.timezone})`);
           }
         } else {
           // Programar nueva tarea
@@ -136,6 +140,7 @@ function scheduleTask(taskConfig) {
   try {
     const taskName = taskConfig.taskName;
     const cronExpression = taskConfig.cronExpression;
+    const timezone = taskConfig.timezone || process.env.TZ || 'America/Argentina/Buenos_Aires';
     const scriptPath = AVAILABLE_TASKS[taskName];
 
     // Validar expresión cron
@@ -144,20 +149,29 @@ function scheduleTask(taskConfig) {
       return;
     }
 
-    logger.info(`➕ Programando "${taskName}": ${cronExpression}`);
+    // Validar timezone
+    try {
+      Intl.DateTimeFormat(undefined, { timeZone: timezone });
+    } catch (e) {
+      logger.error(`❌ Zona horaria inválida para "${taskName}": ${timezone}`);
+      return;
+    }
+
+    logger.info(`➕ Programando "${taskName}": ${cronExpression} (${timezone})`);
 
     // Crear tarea programada
     const task = cron.schedule(cronExpression, async () => {
       await executeTask(taskConfig, scriptPath);
     }, {
       scheduled: true,
-      timezone: process.env.TZ || 'America/Argentina/Buenos_Aires'
+      timezone: timezone
     });
 
     // Guardar en el mapa
     scheduledTasks.set(taskName, {
       task: task,
       cronExpression: cronExpression,
+      timezone: timezone,
       scriptPath: scriptPath,
       scheduledAt: new Date()
     });

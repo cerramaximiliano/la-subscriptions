@@ -24,7 +24,25 @@ const CronTaskConfigSchema = new Schema({
   cronExpression: {
     type: String,
     required: true,
-    default: '0 2 * * *' // Por defecto: todos los días a las 2 AM
+    default: '0 23 * * *' // Por defecto: todos los días a las 11 PM
+  },
+
+  // Zona horaria para la expresión cron
+  timezone: {
+    type: String,
+    default: 'America/Argentina/Buenos_Aires',
+    validate: {
+      validator: function(v) {
+        // Validar que sea una zona horaria válida de IANA
+        try {
+          Intl.DateTimeFormat(undefined, { timeZone: v });
+          return true;
+        } catch (e) {
+          return false;
+        }
+      },
+      message: props => `${props.value} no es una zona horaria válida`
+    }
   },
 
   // Estado de habilitación

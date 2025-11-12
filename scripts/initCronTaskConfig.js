@@ -16,7 +16,8 @@ const CronTaskConfig = require('../models/CronTaskConfig');
 const GRACE_PERIOD_CONFIG = {
   taskName: 'grace-period-processor',
   taskDescription: 'Procesa períodos de gracia vencidos, envía recordatorios y archiva contenido excedente',
-  cronExpression: '0 2 * * *', // Todos los días a las 2 AM
+  cronExpression: '0 23 * * *', // Todos los días a las 11 PM (23:00)
+  timezone: 'America/Argentina/Buenos_Aires', // Zona horaria de Buenos Aires, Argentina
   enabled: true,
   priority: 8,
   config: {
@@ -156,6 +157,7 @@ async function initializeCronTaskConfig() {
     logger.info(`Nombre: ${finalConfig.taskName}`);
     logger.info(`Descripción: ${finalConfig.taskDescription}`);
     logger.info(`Expresión cron: ${finalConfig.cronExpression}`);
+    logger.info(`Zona horaria: ${finalConfig.timezone}`);
     logger.info(`Habilitado: ${finalConfig.enabled ? 'Sí' : 'No'}`);
     logger.info(`Prioridad: ${finalConfig.priority}`);
     logger.info(`Próxima ejecución: ${finalConfig.nextExecution}`);
