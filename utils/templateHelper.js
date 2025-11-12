@@ -1,11 +1,11 @@
 const logger = require('./logger');
 
 /**
- * Reemplaza variables en un template usando formato {{variable}}
+ * Reemplaza variables en un template usando formato {{variable}} o ${variable}
  * Soporta condicionales simples {{#if variable}}...{{/if}} y {{#if variable}}...{{else}}...{{/if}}
  * Soporta comparaciones {{#if (eq variable "value")}}...{{/if}}
  * Soporta iteraciones {{#each array}}...{{/each}}
- * 
+ *
  * @param {string} template - El template con variables
  * @param {object} data - Objeto con los valores para reemplazar
  * @returns {string} - El template con las variables reemplazadas
@@ -110,15 +110,24 @@ function processContent(content, data) {
 }
 
 /**
- * Reemplaza variables simples {{variable}}
+ * Reemplaza variables simples {{variable}} y ${variable}
  */
 function replaceVariables(template, data) {
-  const variableRegex = /\{\{(\w+(?:\.\w+)*)\}\}/g;
-  
-  return template.replace(variableRegex, (match, variable) => {
+  // Primero reemplazar formato {{variable}}
+  const doubleBracesRegex = /\{\{(\w+(?:\.\w+)*)\}\}/g;
+  let result = template.replace(doubleBracesRegex, (match, variable) => {
     const value = getNestedValue(data, variable);
     return value !== undefined && value !== null ? String(value) : '';
   });
+
+  // Luego reemplazar formato ${variable}
+  const dollarBracesRegex = /\$\{(\w+(?:\.\w+)*)\}/g;
+  result = result.replace(dollarBracesRegex, (match, variable) => {
+    const value = getNestedValue(data, variable);
+    return value !== undefined && value !== null ? String(value) : '';
+  });
+
+  return result;
 }
 
 /**
@@ -175,35 +184,41 @@ function validateTemplateData(requiredVariables, data) {
  */
 function extractTemplateVariables(template) {
   const variables = new Set();
-  
+
   // Variables simples {{variable}}
   const simpleRegex = /\{\{(\w+(?:\.\w+)*)\}\}/g;
   let match;
-  
+
   while ((match = simpleRegex.exec(template)) !== null) {
     if (!match[1].startsWith('#') && !match[1].startsWith('/')) {
       variables.add(match[1]);
     }
   }
-  
+
+  // Variables simples ${variable}
+  const dollarRegex = /\$\{(\w+(?:\.\w+)*)\}/g;
+  while ((match = dollarRegex.exec(template)) !== null) {
+    variables.add(match[1]);
+  }
+
   // Variables en condicionales
   const conditionalRegex = /\{\{#if\s+(\w+)\}\}/g;
   while ((match = conditionalRegex.exec(template)) !== null) {
     variables.add(match[1]);
   }
-  
+
   // Variables en comparaciones
   const comparisonRegex = /\{\{#if\s+\(eq\s+(\w+)\s+"[^"]+"\)\}\}/g;
   while ((match = comparisonRegex.exec(template)) !== null) {
     variables.add(match[1]);
   }
-  
+
   // Variables en iteraciones
   const eachRegex = /\{\{#each\s+(\w+)\}\}/g;
   while ((match = eachRegex.exec(template)) !== null) {
     variables.add(match[1]);
   }
-  
+
   return Array.from(variables);
 }
 
