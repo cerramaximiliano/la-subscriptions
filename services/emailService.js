@@ -990,14 +990,30 @@ exports.sendSubscriptionEmail = async (user, event, additionalData = {}) => {
 
       case 'gracePeriodReminder':
         // Determinar si hay exceso de límites
-        if (additionalData.exceedsLimits || 
-            (additionalData.foldersToArchive > 0 || 
-             additionalData.calculatorsToArchive > 0 || 
-             additionalData.contactsToArchive > 0)) {
+        const hasExcess = additionalData.exceedsLimits ||
+            (additionalData.foldersToArchive > 0 ||
+             additionalData.calculatorsToArchive > 0 ||
+             additionalData.contactsToArchive > 0);
+
+        if (hasExcess) {
           templateName = 'gracePeriodReminderWithExcess';
         } else {
           templateName = 'gracePeriodReminderNoExcess';
         }
+
+        // LOG DE SELECCIÓN DE TEMPLATE
+        logger.info(`[TEMPLATE SELECTION] Evento: gracePeriodReminder`);
+        logger.info(`[TEMPLATE SELECTION] Datos recibidos:`, {
+          exceedsLimits: additionalData.exceedsLimits,
+          foldersToArchive: additionalData.foldersToArchive,
+          calculatorsToArchive: additionalData.calculatorsToArchive,
+          contactsToArchive: additionalData.contactsToArchive,
+          currentFolders: additionalData.currentFolders,
+          currentCalculators: additionalData.currentCalculators,
+          currentContacts: additionalData.currentContacts
+        });
+        logger.info(`[TEMPLATE SELECTION] Template seleccionado: ${templateName}`);
+        logger.info(`[TEMPLATE SELECTION] Razón: ${hasExcess ? 'Hay recursos que exceden límites' : 'Recursos dentro de límites'}`);
         break;
 
       case 'gracePeriodExpired':
@@ -1118,6 +1134,10 @@ exports.sendPaymentRecoveredEmail = async (to, data) => {
 exports.sendGracePeriodReminders = async () => {
   try {
     const Subscription = require('../models/Subscription');
+    const Folder = require('../models/Folder');
+    const Calculator = require('../models/Calculator');
+    const Contact = require('../models/Contact');
+
     const now = new Date();
     const threeDaysFromNow = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
 
@@ -1138,15 +1158,49 @@ exports.sendGracePeriodReminders = async () => {
           (subscription.downgradeGracePeriod.expiresAt - now) / (1000 * 60 * 60 * 24)
         );
 
+        const targetPlan = subscription.downgradeGracePeriod.targetPlan || 'free';
+        const limits = { maxFolders: 5, maxCalculators: 3, maxContacts: 10 }; // Límites del plan free
+
+        // Calcular recursos reales del usuario
+        const currentFolders = await Folder.countDocuments({
+          userId: subscription.user._id,
+          archived: { $ne: true }
+        });
+
+        const currentCalculators = await Calculator.countDocuments({
+          userId: subscription.user._id,
+          archived: { $ne: true }
+        });
+
+        const currentContacts = await Contact.countDocuments({
+          userId: subscription.user._id,
+          archived: { $ne: true }
+        });
+
+        // Calcular recursos a archivar
+        const foldersToArchive = Math.max(0, currentFolders - limits.maxFolders);
+        const calculatorsToArchive = Math.max(0, currentCalculators - limits.maxCalculators);
+        const contactsToArchive = Math.max(0, currentContacts - limits.maxContacts);
+        const exceedsLimits = foldersToArchive > 0 || calculatorsToArchive > 0 || contactsToArchive > 0;
+
+        logger.info(`[RECURSOS LEGACY] Usuario: ${subscription.user.email}`);
+        logger.info(`[RECURSOS LEGACY] Actuales: folders=${currentFolders}, calculators=${currentCalculators}, contacts=${currentContacts}`);
+        logger.info(`[RECURSOS LEGACY] A archivar: folders=${foldersToArchive}, calculators=${calculatorsToArchive}, contacts=${contactsToArchive}`);
+        logger.info(`[RECURSOS LEGACY] Excede límites: ${exceedsLimits}`);
+
         await this.sendSubscriptionEmail(subscription.user, 'gracePeriodReminder', {
           daysRemaining,
           gracePeriodEnd: subscription.downgradeGracePeriod.expiresAt.toLocaleDateString('es-ES'),
           previousPlan: subscription.downgradeGracePeriod.previousPlan,
-          // TODO: Agregar conteos reales de recursos
-          currentFolders: 0,
-          currentCalculators: 0,
-          currentContacts: 0,
-          exceedsLimits: false
+          targetPlan: targetPlan,
+          currentFolders,
+          currentCalculators,
+          currentContacts,
+          foldersToArchive,
+          calculatorsToArchive,
+          contactsToArchive,
+          exceedsLimits,
+          planLimits: limits
         });
 
         // Marcar recordatorio como enviado

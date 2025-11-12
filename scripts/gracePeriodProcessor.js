@@ -500,6 +500,26 @@ async function sendGracePeriodReminders() {
             continue;
           }
 
+          // LOG DETALLADO DE RECURSOS CALCULADOS
+          logger.info(`[RECURSOS] Usuario: ${user.email} (${user._id})`);
+          logger.info(`[RECURSOS] Plan objetivo: ${targetPlan}`);
+          logger.info(`[RECURSOS] Recursos actuales:`, {
+            folders: resources.current.folders,
+            calculators: resources.current.calculators,
+            contacts: resources.current.contacts
+          });
+          logger.info(`[RECURSOS] Límites del plan:`, {
+            maxFolders: resources.limits.maxFolders,
+            maxCalculators: resources.limits.maxCalculators,
+            maxContacts: resources.limits.maxContacts
+          });
+          logger.info(`[RECURSOS] Recursos a archivar:`, {
+            folders: resources.toArchive.folders,
+            calculators: resources.toArchive.calculators,
+            contacts: resources.toArchive.contacts,
+            total: resources.toArchive.folders + resources.toArchive.calculators + resources.toArchive.contacts
+          });
+
           const emailData = {
             planName: subscription.plan,
             targetPlan: targetPlan,
