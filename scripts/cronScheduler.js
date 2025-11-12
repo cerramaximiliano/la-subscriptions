@@ -17,7 +17,7 @@ const CronTaskConfig = require('../models/CronTaskConfig');
 const scheduledTasks = new Map();
 
 // Intervalo de sincronización con MongoDB (en minutos)
-const SYNC_INTERVAL_MINUTES = 5;
+const SYNC_INTERVAL_MINUTES = 2;
 
 // Tareas disponibles y sus scripts
 const AVAILABLE_TASKS = {
@@ -51,7 +51,7 @@ async function initScheduler() {
     }, SYNC_INTERVAL_MINUTES * 60 * 1000);
 
     logger.info(`\n✅ Scheduler iniciado exitosamente`);
-    logger.info(`📅 Sincronización automática cada ${SYNC_INTERVAL_MINUTES} minutos\n`);
+    logger.info(`📅 Sincronización automática cada ${SYNC_INTERVAL_MINUTES} minuto${SYNC_INTERVAL_MINUTES > 1 ? 's' : ''}\n`);
     logger.info('Presiona Ctrl+C para detener el scheduler\n');
 
   } catch (error) {
