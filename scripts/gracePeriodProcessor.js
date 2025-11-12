@@ -496,8 +496,15 @@ async function calculateUserResources(userId, targetPlan) {
 async function sendGracePeriodReminders() {
   try {
     const now = new Date();
-    const threeDaysFromNow = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
-    const oneDayFromNow = new Date(now.getTime() + 1 * 24 * 60 * 60 * 1000);
+
+    // Calcular límites al FINAL del día (23:59:59) para capturar todo el día
+    const threeDaysFromNow = new Date(now);
+    threeDaysFromNow.setDate(threeDaysFromNow.getDate() + 3);
+    threeDaysFromNow.setHours(23, 59, 59, 999);
+
+    const oneDayFromNow = new Date(now);
+    oneDayFromNow.setDate(oneDayFromNow.getDate() + 1);
+    oneDayFromNow.setHours(23, 59, 59, 999);
     
     // Buscar suscripciones con recordatorios pendientes
     const subscriptions = await Subscription.find({
