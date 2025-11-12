@@ -17,24 +17,53 @@ const Calculator = require('../models/Calculator');
 const Contact = require('../models/Contact');
 const Alert = require('../models/Alert');
 const PlanConfig = require('../models/PlanConfig');
+const CronTaskConfig = require('../models/CronTaskConfig');
 
 /**
  * Función principal que procesa períodos de gracia
  */
 async function processGracePeriods() {
   const startTime = Date.now();
-  
+  let taskConfig = null;
+
   try {
     logger.info('========================================');
     logger.info('🔄 PROCESADOR DE PERÍODOS DE GRACIA');
     logger.info(`Fecha/Hora: ${new Date().toISOString()}`);
     logger.info('========================================');
-    
+
     // Conectar a MongoDB si no está conectado
     if (mongoose.connection.readyState !== 1) {
       logger.info('📊 Conectando a MongoDB...');
       await mongoose.connect(process.env.MONGODB_URI || process.env.URLDB);
       logger.info('✅ Conectado a MongoDB exitosamente');
+    }
+
+    // Verificar configuración de la tarea
+    logger.info('\n📋 Verificando configuración de la tarea...');
+    taskConfig = await CronTaskConfig.findOne({ taskName: 'grace-period-processor' });
+
+    if (!taskConfig) {
+      logger.warn('⚠️  No se encontró configuración de la tarea');
+      logger.warn('   Ejecutando con configuración por defecto');
+      logger.warn('   Para crear la configuración, ejecuta: node scripts/initCronTaskConfig.js');
+    } else if (!taskConfig.enabled) {
+      logger.warn('⚠️  La tarea está DESHABILITADA en la configuración');
+      logger.warn('   Para habilitarla, actualiza el campo "enabled" en la base de datos');
+      logger.warn('   o ejecuta: node scripts/initCronTaskConfig.js');
+      return {
+        success: false,
+        skipped: true,
+        reason: 'Task is disabled in configuration'
+      };
+    } else {
+      logger.info('✅ Configuración encontrada y habilitada');
+      logger.info(`   Expresión cron: ${taskConfig.cronExpression}`);
+      logger.info(`   Última ejecución: ${taskConfig.lastExecution?.startedAt || 'Nunca'}`);
+
+      // Registrar inicio de ejecución
+      await taskConfig.startExecution();
+      logger.info('📝 Ejecución registrada en el sistema');
     }
     
     // PASO 1: Procesar períodos de gracia vencidos (auto-archivado)
@@ -64,20 +93,43 @@ async function processGracePeriods() {
     logger.info(`   - Recordatorios enviados: ${remindersCount}`);
     logger.info(`   - Registros obsoletos limpiados: ${cleanedCount}`);
     logger.info('========================================\n');
-    
+
+    const resultStats = {
+      archivedCount,
+      paymentGraceCount,
+      remindersCount,
+      cleanedCount
+    };
+
+    // Registrar ejecución exitosa
+    if (taskConfig) {
+      await taskConfig.completeExecution(resultStats);
+      logger.info('✅ Ejecución registrada exitosamente en el sistema');
+    }
+
     return {
       success: true,
       duration,
-      stats: {
-        archivedCount,
-        paymentGraceCount,
-        remindersCount,
-        cleanedCount
-      }
+      stats: resultStats
     };
-    
+
   } catch (error) {
     logger.error('❌ ERROR CRÍTICO en procesamiento de períodos de gracia:', error);
+
+    // Registrar error en configuración
+    if (taskConfig) {
+      try {
+        await taskConfig.failExecution(error, {
+          errorType: error.name,
+          errorCode: error.code,
+          timestamp: new Date().toISOString()
+        });
+        logger.info('📝 Error registrado en el sistema');
+      } catch (configError) {
+        logger.error('Error registrando fallo en configuración:', configError);
+      }
+    }
+
     throw error;
   }
 }
@@ -693,13 +745,23 @@ async function getPlanLimitsFromConfig(planId) {
 /**
  * Obtener límites del plan (legacy - mantener por compatibilidad)
  */
-function getPlanLimits(plan) {
+async function getPlanLimits(plan, taskConfig = null) {
+  // Intentar obtener límites de la configuración de la tarea
+  if (taskConfig && taskConfig.config?.customSettings?.planLimits) {
+    const configLimits = taskConfig.config.customSettings.planLimits[plan];
+    if (configLimits) {
+      logger.info(`[CONFIG] Usando límites de configuración para plan ${plan}`);
+      return configLimits;
+    }
+  }
+
+  // Límites por defecto (legacy)
   const limits = {
     free: { maxFolders: 5, maxCalculators: 3, maxContacts: 10 },
     standard: { maxFolders: 50, maxCalculators: 20, maxContacts: 100 },
     premium: { maxFolders: 500, maxCalculators: 200, maxContacts: 1000 }
   };
-  
+
   return limits[plan] || limits.free;
 }
 
