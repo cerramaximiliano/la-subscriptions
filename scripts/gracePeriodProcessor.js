@@ -592,18 +592,26 @@ async function sendGracePeriodReminders(taskConfig = null) {
           if (daysRemaining <= 1 && !subscription.downgradeGracePeriod.reminder1DaySent) {
             emailData.daysRemaining = 1;
             await emailService.sendSubscriptionEmail(user, 'gracePeriodReminder', emailData);
-            await Subscription.updateOne(
+
+            logger.info(`[UPDATE FLAG] Actualizando reminder1DaysSent para subscription ${subscription._id}`);
+            const updateResult = await Subscription.updateOne(
               { _id: subscription._id },
               { $set: { 'downgradeGracePeriod.reminder1DaySent': true } }
             );
+            logger.info(`[UPDATE FLAG] Resultado: matchedCount=${updateResult.matchedCount}, modifiedCount=${updateResult.modifiedCount}`);
+
             sentCount++;
           } else if (daysRemaining <= 3 && !subscription.downgradeGracePeriod.reminder3DaysSent) {
             emailData.daysRemaining = 3;
             await emailService.sendSubscriptionEmail(user, 'gracePeriodReminder', emailData);
-            await Subscription.updateOne(
+
+            logger.info(`[UPDATE FLAG] Actualizando reminder3DaysSent para subscription ${subscription._id}`);
+            const updateResult = await Subscription.updateOne(
               { _id: subscription._id },
               { $set: { 'downgradeGracePeriod.reminder3DaysSent': true } }
             );
+            logger.info(`[UPDATE FLAG] Resultado: matchedCount=${updateResult.matchedCount}, modifiedCount=${updateResult.modifiedCount}`);
+
             sentCount++;
           }
         } else if (subscription.accountStatus === 'grace_period') {
