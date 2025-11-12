@@ -741,7 +741,7 @@ async function getPlanLimitsFromConfig(planId) {
 /**
  * Obtener límites del plan (legacy - mantener por compatibilidad)
  */
-async function getPlanLimits(plan, taskConfig = null) {
+function getPlanLimits(plan, taskConfig = null) {
   // Intentar obtener límites de la configuración de la tarea
   if (taskConfig && taskConfig.config?.customSettings?.planLimits) {
     const configLimits = taskConfig.config.customSettings.planLimits[plan];
