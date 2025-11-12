@@ -63,14 +63,14 @@ El scheduler debe estar corriendo constantemente en producción:
 
 ```bash
 # Iniciar con PM2
-pm2 start ecosystem.config.js --only cron-scheduler --env production
+pm2 start ecosystem.config.js --only dynamic-cron-scheduler --env production
 pm2 save
 
 # Ver estado
 pm2 list
 
 # Ver logs en tiempo real
-pm2 logs cron-scheduler
+pm2 logs dynamic-cron-scheduler
 ```
 
 El scheduler:
@@ -271,7 +271,7 @@ El scheduler dinámico está configurado en `ecosystem.config.js`:
 
 ```javascript
 {
-  name: 'cron-scheduler',
+  name: 'dynamic-cron-scheduler',
   script: './scripts/cronScheduler.js',
   instances: 1,
   exec_mode: 'fork',
@@ -292,16 +292,16 @@ Para gestionar el scheduler:
 pm2 list
 
 # Ver logs
-pm2 logs cron-scheduler
+pm2 logs dynamic-cron-scheduler
 
 # Reiniciar solo si es necesario (por actualización de código)
-pm2 restart cron-scheduler
+pm2 restart dynamic-cron-scheduler
 
 # Detener
-pm2 stop cron-scheduler
+pm2 stop dynamic-cron-scheduler
 
 # Iniciar
-pm2 start cron-scheduler
+pm2 start dynamic-cron-scheduler
 ```
 
 ## Cómo Funciona el Sistema Dinámico
@@ -391,12 +391,12 @@ pm2 start cron-scheduler
 
 2. Ver logs del scheduler:
    ```bash
-   pm2 logs cron-scheduler --lines 50
+   pm2 logs dynamic-cron-scheduler --lines 50
    ```
 
 3. Reiniciar si es necesario:
    ```bash
-   pm2 restart cron-scheduler
+   pm2 restart dynamic-cron-scheduler
    ```
 
 ### La tarea no se ejecuta

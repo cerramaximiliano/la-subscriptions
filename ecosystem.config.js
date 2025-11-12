@@ -64,7 +64,7 @@
 
     // Configuración del scheduler dinámico de cron tasks
     {
-      name: 'cron-scheduler',
+      name: 'dynamic-cron-scheduler',
       script: './scripts/cronScheduler.js',
       instances: 1,
       exec_mode: 'fork',
@@ -80,8 +80,8 @@
       },
 
       // Logs específicos para el scheduler
-      error_file: './logs/cron-scheduler-error.log',
-      out_file: './logs/cron-scheduler-output.log',
+      error_file: './logs/dynamic-cron-scheduler-error.log',
+      out_file: './logs/dynamic-cron-scheduler-output.log',
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
 
       // Configuración de memoria
