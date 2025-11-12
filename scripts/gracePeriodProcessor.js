@@ -68,15 +68,15 @@ async function processGracePeriods() {
     
     // PASO 1: Procesar períodos de gracia vencidos (auto-archivado)
     logger.info('\n📋 PASO 1: Procesando períodos de gracia vencidos...');
-    const archivedCount = await processExpiredGracePeriods();
-    
+    const archivedCount = await processExpiredGracePeriods(taskConfig);
+
     // PASO 2: Procesar períodos de gracia de pagos fallidos
     logger.info('\n📋 PASO 2: Procesando períodos de gracia por pagos fallidos...');
-    const paymentGraceCount = await processPaymentGracePeriods();
-    
+    const paymentGraceCount = await processPaymentGracePeriods(taskConfig);
+
     // PASO 3: Enviar recordatorios
     logger.info('\n📋 PASO 3: Enviando recordatorios...');
-    const remindersCount = await sendGracePeriodReminders();
+    const remindersCount = await sendGracePeriodReminders(taskConfig);
     
     // PASO 4: Limpiar datos obsoletos
     logger.info('\n📋 PASO 4: Limpiando datos obsoletos...');
@@ -137,7 +137,7 @@ async function processGracePeriods() {
 /**
  * Procesar períodos de gracia vencidos por downgrade
  */
-async function processExpiredGracePeriods() {
+async function processExpiredGracePeriods(taskConfig = null) {
   try {
     const now = new Date();
     
@@ -160,7 +160,7 @@ async function processExpiredGracePeriods() {
         
         // Realizar auto-archivado al plan destino (free)
         const targetPlan = subscription.downgradeGracePeriod.targetPlan || 'free';
-        const archiveResult = await performAutoArchiving(user._id, targetPlan);
+        const archiveResult = await performAutoArchiving(user._id, targetPlan, taskConfig);
         
         // Marcar como procesado
         subscription.downgradeGracePeriod.autoArchiveScheduled = false;
@@ -184,7 +184,7 @@ async function processExpiredGracePeriods() {
             calculatorsArchived: archiveResult.calculators?.archived || 0,
             contactsArchived: archiveResult.contacts?.archived || 0,
             totalArchived,
-            planLimits: getPlanLimits(targetPlan)
+            planLimits: getPlanLimits(targetPlan, taskConfig)
           });
         }
         
@@ -231,7 +231,7 @@ async function processExpiredGracePeriods() {
 /**
  * Procesar períodos de gracia por pagos fallidos
  */
-async function processPaymentGracePeriods() {
+async function processPaymentGracePeriods(taskConfig = null) {
   try {
     const now = new Date();
     
@@ -254,9 +254,9 @@ async function processPaymentGracePeriods() {
         if (!user) continue;
         
         logger.info(`[PAYMENT-GRACE] Procesando usuario ${user.email}`);
-        
+
         // Realizar auto-archivado
-        const archiveResult = await performAutoArchiving(user._id, 'free');
+        const archiveResult = await performAutoArchiving(user._id, 'free', taskConfig);
         
         // Actualizar suscripción
         subscription.accountStatus = 'archived';
@@ -294,10 +294,10 @@ async function processPaymentGracePeriods() {
 /**
  * Realizar auto-archivado de contenido excedente
  */
-async function performAutoArchiving(userId, targetPlan) {
+async function performAutoArchiving(userId, targetPlan, taskConfig = null) {
   try {
     // Usar límites del plan (usar legacy porque PlanConfig no tiene features poblados)
-    const limits = getPlanLimits(targetPlan);
+    const limits = getPlanLimits(targetPlan, taskConfig);
     logger.info(`[DEBUG] Límites del plan ${targetPlan}:`, JSON.stringify(limits));
     
     const result = {
@@ -441,9 +441,9 @@ async function performAutoArchiving(userId, targetPlan) {
 /**
  * Calcular recursos del usuario sin archivar
  */
-async function calculateUserResources(userId, targetPlan) {
+async function calculateUserResources(userId, targetPlan, taskConfig = null) {
   try {
-    const limits = getPlanLimits(targetPlan);
+    const limits = getPlanLimits(targetPlan, taskConfig);
 
     const result = {
       current: {
@@ -493,7 +493,7 @@ async function calculateUserResources(userId, targetPlan) {
 /**
  * Enviar recordatorios de períodos próximos a vencer
  */
-async function sendGracePeriodReminders() {
+async function sendGracePeriodReminders(taskConfig = null) {
   try {
     const now = new Date();
 
@@ -545,14 +545,15 @@ async function sendGracePeriodReminders() {
         // Determinar tipo de recordatorio
         if (subscription.downgradeGracePeriod?.expiresAt) {
           // Recordatorio de downgrade
-          const daysRemaining = Math.ceil(
+          // Usar Math.floor para contar días completos transcurridos
+          const daysRemaining = Math.floor(
             (subscription.downgradeGracePeriod.expiresAt - now) / (1000 * 60 * 60 * 24)
           );
 
           const targetPlan = subscription.downgradeGracePeriod.targetPlan || 'free';
 
           // Calcular recursos del usuario
-          const resources = await calculateUserResources(user._id, targetPlan);
+          const resources = await calculateUserResources(user._id, targetPlan, taskConfig);
 
           if (!resources) {
             logger.error(`No se pudo calcular recursos para usuario ${user._id}`);
@@ -562,22 +563,10 @@ async function sendGracePeriodReminders() {
           // LOG DETALLADO DE RECURSOS CALCULADOS
           logger.info(`[RECURSOS] Usuario: ${user.email} (${user._id})`);
           logger.info(`[RECURSOS] Plan objetivo: ${targetPlan}`);
-          logger.info(`[RECURSOS] Recursos actuales:`, {
-            folders: resources.current.folders,
-            calculators: resources.current.calculators,
-            contacts: resources.current.contacts
-          });
-          logger.info(`[RECURSOS] Límites del plan:`, {
-            maxFolders: resources.limits.maxFolders,
-            maxCalculators: resources.limits.maxCalculators,
-            maxContacts: resources.limits.maxContacts
-          });
-          logger.info(`[RECURSOS] Recursos a archivar:`, {
-            folders: resources.toArchive.folders,
-            calculators: resources.toArchive.calculators,
-            contacts: resources.toArchive.contacts,
-            total: resources.toArchive.folders + resources.toArchive.calculators + resources.toArchive.contacts
-          });
+          logger.info(`[RECURSOS] Días restantes: ${daysRemaining}`);
+          logger.info(`[RECURSOS] Recursos actuales: folders=${resources.current.folders}, calculators=${resources.current.calculators}, contacts=${resources.current.contacts}`);
+          logger.info(`[RECURSOS] Límites del plan: folders=${resources.limits.maxFolders}, calculators=${resources.limits.maxCalculators}, contacts=${resources.limits.maxContacts}`);
+          logger.info(`[RECURSOS] Recursos a archivar: folders=${resources.toArchive.folders}, calculators=${resources.toArchive.calculators}, contacts=${resources.toArchive.contacts}, total=${resources.toArchive.folders + resources.toArchive.calculators + resources.toArchive.contacts}`);
 
           const emailData = {
             planName: subscription.plan,
@@ -623,7 +612,7 @@ async function sendGracePeriodReminders() {
             const targetPlan = 'free';
 
             // Calcular recursos del usuario
-            const resources = await calculateUserResources(user._id, targetPlan);
+            const resources = await calculateUserResources(user._id, targetPlan, taskConfig);
 
             if (!resources) {
               logger.error(`No se pudo calcular recursos para usuario ${user._id}`);
