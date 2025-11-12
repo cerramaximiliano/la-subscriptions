@@ -62,9 +62,9 @@
       cron_restart: '0 2 * * 0', // Reiniciar cada domingo a las 2 AM
     },
 
-    // Configuración del scheduler dinámico de cron tasks
+    // Configuración del scheduler para grace period
     {
-      name: 'dynamic-cron-scheduler',
+      name: 'grace-period-cron-scheduler',
       script: './scripts/cronScheduler.js',
       instances: 1,
       exec_mode: 'fork',
@@ -80,8 +80,8 @@
       },
 
       // Logs específicos para el scheduler
-      error_file: './logs/dynamic-cron-scheduler-error.log',
-      out_file: './logs/dynamic-cron-scheduler-output.log',
+      error_file: './logs/grace-period-scheduler-error.log',
+      out_file: './logs/grace-period-scheduler-output.log',
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
 
       // Configuración de memoria
