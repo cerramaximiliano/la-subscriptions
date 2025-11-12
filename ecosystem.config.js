@@ -62,28 +62,34 @@
       cron_restart: '0 2 * * 0', // Reiniciar cada domingo a las 2 AM
     },
 
-    // Configuración del procesador de períodos de gracia (NUEVO - Microservicio)
+    // Configuración del scheduler dinámico de cron tasks
     {
-      name: 'grace-period-processor',
-      script: './scripts/gracePeriodProcessor.js',
+      name: 'cron-scheduler',
+      script: './scripts/cronScheduler.js',
       instances: 1,
       exec_mode: 'fork',
 
-      // Ejecutar como cron job
-      cron_restart: '0 2 * * *', // Todos los días a las 2 AM
-      autorestart: false, // No reiniciar automáticamente
+      // Mantener corriendo constantemente (no usar cron_restart)
+      autorestart: true,
+      max_restarts: 10,
+      min_uptime: '10s',
 
       env: {
-        NODE_ENV: 'production'
+        NODE_ENV: 'production',
+        TZ: 'America/Argentina/Buenos_Aires'
       },
 
-      // Logs específicos para el cron job
-      error_file: './logs/grace-processor-error.log',
-      out_file: './logs/grace-processor-output.log',
+      // Logs específicos para el scheduler
+      error_file: './logs/cron-scheduler-error.log',
+      out_file: './logs/cron-scheduler-output.log',
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
 
-      // No aplicar límites de memoria para jobs cortos
-      max_memory_restart: '1G',
+      // Configuración de memoria
+      max_memory_restart: '512M',
+
+      // Graceful shutdown
+      kill_timeout: 10000,
+      wait_ready: false
     }],
 
     // Configuración de deploy (opcional)

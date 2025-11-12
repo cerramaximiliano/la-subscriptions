@@ -1,16 +1,18 @@
-# Sistema de Configuración de Cron Tasks
+# Sistema de Configuración de Cron Tasks (Dinámico)
 
 ## Descripción General
 
-Este sistema permite configurar y controlar la ejecución de tareas programadas (cron tasks) mediante documentos en MongoDB, sin necesidad de modificar código o reiniciar servicios.
+Este sistema permite configurar y controlar **completamente** la ejecución de tareas programadas (cron tasks) mediante documentos en MongoDB, **sin necesidad de modificar código o reiniciar servicios**.
 
 ## Características Principales
 
-- ✅ **Configuración dinámica**: Controla horarios, habilitación y parámetros desde la base de datos
+- 🔄 **100% Dinámico**: Cambia horarios, habilita/deshabilita tareas sin reiniciar
 - 📊 **Estadísticas automáticas**: Registra ejecuciones, tiempos, éxitos y errores
 - 📧 **Notificaciones**: Alertas automáticas en caso de errores o timeouts
 - 🔄 **Historial**: Mantiene registro de las últimas 50 ejecuciones
 - ⚙️ **Flexible**: Configuración específica por tarea
+- ⚡ **Sincronización automática**: Lee cambios de MongoDB cada 5 minutos
+- 🎯 **Scheduler inteligente**: Usa `node-cron` para programación precisa
 
 ## Estructura del Sistema
 
@@ -21,7 +23,14 @@ Este sistema permite configurar y controlar la ejecución de tareas programadas 
    - Métodos para registrar ejecuciones
    - Cálculo automático de próxima ejecución
 
-2. **Scripts de gestión**:
+2. **Scheduler Dinámico**: `scripts/cronScheduler.js` ⭐ **NUEVO**
+   - Corre constantemente como proceso de PM2
+   - Lee configuraciones de MongoDB cada 5 minutos
+   - Programa/reprograma tareas automáticamente
+   - Detecta cambios en horarios y los aplica sin reiniciar
+   - Ejecuta tareas en procesos separados
+
+3. **Scripts de gestión**:
    - `scripts/initCronTaskConfig.js` - Inicializa/actualiza configuración
    - `scripts/viewCronTaskConfig.js` - Visualiza configuración y estadísticas
    - `scripts/gracePeriodProcessor.js` - Procesador con soporte de configuración
@@ -48,7 +57,31 @@ node scripts/viewCronTaskConfig.js grace-period-processor
 
 ## Uso del Sistema
 
-### Ejecutar el procesador manualmente
+### Iniciar el Scheduler (Producción)
+
+El scheduler debe estar corriendo constantemente en producción:
+
+```bash
+# Iniciar con PM2
+pm2 start ecosystem.config.js --only cron-scheduler --env production
+pm2 save
+
+# Ver estado
+pm2 list
+
+# Ver logs en tiempo real
+pm2 logs cron-scheduler
+```
+
+El scheduler:
+1. Se conecta a MongoDB
+2. Carga todas las tareas configuradas
+3. Programa cada tarea habilitada según su `cronExpression`
+4. Sincroniza con MongoDB cada 5 minutos
+5. Detecta cambios (horarios, habilitación) y los aplica automáticamente
+6. Ejecuta las tareas en el horario programado
+
+### Ejecutar el procesador manualmente (Desarrollo/Testing)
 
 ```bash
 node scripts/gracePeriodProcessor.js
@@ -79,7 +112,9 @@ db.crontaskconfigs.updateOne(
 node scripts/initCronTaskConfig.js
 ```
 
-### Modificar horario de ejecución
+### Modificar horario de ejecución ⭐ DINÁMICO
+
+Con el scheduler dinámico, los cambios se aplican automáticamente:
 
 ```javascript
 db.crontaskconfigs.updateOne(
@@ -94,11 +129,15 @@ db.crontaskconfigs.updateOne(
 )
 ```
 
+**El scheduler detectará el cambio en máximo 5 minutos** y reprogramará la tarea automáticamente. No necesitas reiniciar nada.
+
 Formatos de expresión cron comunes:
 - `0 2 * * *` - Todos los días a las 2 AM
 - `0 */6 * * *` - Cada 6 horas
 - `0 0 * * 0` - Todos los domingos a medianoche
 - `0 2 1 * *` - El día 1 de cada mes a las 2 AM
+- `*/30 * * * *` - Cada 30 minutos
+- `0 8-18 * * 1-5` - Cada hora de 8 AM a 6 PM, lunes a viernes
 
 ### Modificar configuración de período de gracia
 
@@ -228,29 +267,137 @@ db.crontaskconfigs.findOne(
 
 ## Integración con PM2
 
-El procesador está configurado en `ecosystem.config.js`:
+El scheduler dinámico está configurado en `ecosystem.config.js`:
 
 ```javascript
 {
-  name: 'grace-period-processor',
-  script: './scripts/gracePeriodProcessor.js',
-  cron_restart: '0 2 * * *',
-  autorestart: false,
+  name: 'cron-scheduler',
+  script: './scripts/cronScheduler.js',
+  instances: 1,
+  exec_mode: 'fork',
+  autorestart: true,  // Mantener corriendo siempre
   // ...
 }
 ```
 
-Para aplicar cambios en el horario de PM2:
+**Cambios importantes**:
+- ✅ **NO se usa `cron_restart`**: El scheduler corre constantemente
+- ✅ **Horarios 100% en MongoDB**: Todo se controla desde la base de datos
+- ✅ **Sin reinicios**: Los cambios se aplican automáticamente
+
+Para gestionar el scheduler:
 
 ```bash
-pm2 delete grace-period-processor
-pm2 start ecosystem.config.js --only grace-period-processor
-pm2 save
+# Ver estado
+pm2 list
+
+# Ver logs
+pm2 logs cron-scheduler
+
+# Reiniciar solo si es necesario (por actualización de código)
+pm2 restart cron-scheduler
+
+# Detener
+pm2 stop cron-scheduler
+
+# Iniciar
+pm2 start cron-scheduler
 ```
 
-**Nota importante**: El horario en `ecosystem.config.js` debe coincidir con el `cronExpression` en MongoDB para mantener consistencia.
+## Cómo Funciona el Sistema Dinámico
+
+### Arquitectura
+
+```
+┌─────────────────────────────────────────────────────┐
+│                  MongoDB                             │
+│  ┌──────────────────────────────────────────────┐  │
+│  │  CronTaskConfig Collection                   │  │
+│  │  - taskName: "grace-period-processor"        │  │
+│  │  - cronExpression: "0 2 * * *"               │  │
+│  │  - enabled: true                             │  │
+│  │  - config: { ... }                           │  │
+│  └──────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────┘
+                      ↑  Cada 5 minutos
+                      │  lee configuración
+┌─────────────────────────────────────────────────────┐
+│        Scheduler Dinámico (PM2 Process)             │
+│  ┌──────────────────────────────────────────────┐  │
+│  │  scripts/cronScheduler.js                    │  │
+│  │  - Lee tareas de MongoDB                     │  │
+│  │  - Programa con node-cron                    │  │
+│  │  - Detecta cambios automáticamente           │  │
+│  │  - Ejecuta tareas en horario                 │  │
+│  └──────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────┘
+                      │  En horario programado
+                      ↓  fork() proceso separado
+┌─────────────────────────────────────────────────────┐
+│           Tarea (Child Process)                     │
+│  ┌──────────────────────────────────────────────┐  │
+│  │  scripts/gracePeriodProcessor.js             │  │
+│  │  - Ejecuta lógica de negocio                 │  │
+│  │  - Registra inicio/fin en MongoDB            │  │
+│  │  - Actualiza estadísticas                    │  │
+│  └──────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────┘
+```
+
+### Flujo de Sincronización
+
+1. **Inicio del Scheduler**:
+   - Se conecta a MongoDB
+   - Carga todas las tareas configuradas
+   - Programa cada tarea habilitada con `node-cron`
+
+2. **Sincronización Periódica** (cada 5 minutos):
+   - Lee todas las tareas de MongoDB
+   - Compara con tareas ya programadas
+   - **Si cambia `cronExpression`**: Detiene y reprograma
+   - **Si cambia `enabled`**: Activa o detiene tarea
+   - **Si se elimina**: Detiene y limpia
+
+3. **Ejecución de Tarea**:
+   - Verifica que la tarea siga habilitada
+   - Verifica que no haya otra ejecución corriendo
+   - Registra inicio en MongoDB
+   - Ejecuta script en proceso separado
+   - Registra resultado y estadísticas
+
+### Ventajas del Sistema Dinámico
+
+✅ **Cambios sin downtime**: Modifica horarios sin reiniciar servicios
+✅ **Configuración centralizada**: Todo en MongoDB
+✅ **Múltiples tareas**: Escala fácilmente a N tareas
+✅ **Sincronización automática**: Detecta cambios en máximo 5 minutos
+✅ **Procesos aislados**: Cada ejecución en su propio proceso
+✅ **Control de concurrencia**: Previene ejecuciones duplicadas
+
+### Limitaciones
+
+⚠️ **Latencia de sincronización**: Cambios tardan hasta 5 minutos en aplicarse
+⚠️ **Zona horaria**: Se usa la zona configurada en `TZ` (env var)
+⚠️ **Dependencia de MongoDB**: Si MongoDB no está disponible, no se ejecutan tareas
 
 ## Solución de Problemas
+
+### El scheduler no está corriendo
+
+1. Verificar que PM2 esté corriendo:
+   ```bash
+   pm2 list
+   ```
+
+2. Ver logs del scheduler:
+   ```bash
+   pm2 logs cron-scheduler --lines 50
+   ```
+
+3. Reiniciar si es necesario:
+   ```bash
+   pm2 restart cron-scheduler
+   ```
 
 ### La tarea no se ejecuta
 
