@@ -56,7 +56,8 @@ app.get('/', (req, res) => {
     version: '1.0.0',
     endpoints: {
       health: '/health',
-      webhook: '/api/webhook'
+      webhook: '/api/webhook',
+      cronConfig: '/api/cron-config'
     }
   });
 });
@@ -83,7 +84,10 @@ const initializeApp = async () => {
     
     // Configurar rutas
     const webhookRoutes = require('./routes/webhookRoutes');
+    const cronConfigRoutes = require('./routes/cronConfigRoutes');
+
     app.use('/api', webhookRoutes);
+    app.use('/api/cron-config', cronConfigRoutes);
 
     logger.info('✅ Routes configured successfully');
     
