@@ -9,7 +9,7 @@
       // Variables de entorno
       env: {
         NODE_ENV: 'development',
-        PORT: 5001,
+        PORT: 3500,
         ENABLE_CRON: 'false'
       },
       env_production: {

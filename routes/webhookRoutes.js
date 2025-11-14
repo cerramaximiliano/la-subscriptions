@@ -68,9 +68,33 @@
     webhookController.handleStripeWebhook,
     markEventProcessed
   );
-  
+
   // Manejo de errores para marcar eventos fallidos
   router.use('/webhook/stripe', markEventFailed);
+
+  /**
+   * Ruta para webhooks en modo TEST de Stripe
+   * Usa STRIPE_WEBHOOK_SECRET_DEV en lugar del secret de producción
+   * Esta ruta corre en PRODUCCIÓN pero recibe eventos de Stripe en modo TEST
+   * Permite testear webhooks sin afectar el webhook de producción
+   */
+  logger.info('✅ Registrando ruta de webhook para testing: /api/webhook-dev');
+
+  router.post(
+    '/webhook-dev',
+    webhookLogger,
+    express.raw({ type: 'application/json' }),
+    checkIdempotency,
+    webhookController.handleStripeWebhookDev,
+    markEventProcessed
+  );
+
+  // Manejo de errores para marcar eventos fallidos
+  router.use('/webhook-dev', markEventFailed);
+
+  logger.info('📝 Webhook de testing configurado:');
+  logger.info(`   Endpoint: ${process.env.BASE_URL || 'http://localhost'}:${process.env.PORT || 3500}/api/webhook-dev`);
+  logger.info(`   Secret: ${process.env.STRIPE_WEBHOOK_SECRET_DEV ? 'Configurado ✅' : 'NO configurado ⚠️'}`);
 
   /**
    * Endpoint de prueba para desarrollo

@@ -894,6 +894,11 @@ exports.sendEmail = async (to, templateName, data) => {
       subjectContent = template.subject;
     }
 
+    // Agregar prefijo [TEST] al subject si es modo test
+    if (originalEmail !== actualRecipient) {
+      subjectContent = `[TEST] ${subjectContent}`;
+    }
+
     // Agregar aviso de modo test si aplica
     if (originalEmail !== actualRecipient) {
       const testWarning = `<div style="background-color: #fffacd; border: 2px solid #ff6b6b; padding: 10px; margin-bottom: 20px;">

@@ -53,6 +53,12 @@ const SubscriptionSchema = new Schema({
     type: Boolean,
     default: false
   },
+  // Marca si esta suscripción es de Stripe TEST mode
+  testMode: {
+    type: Boolean,
+    default: false,
+    index: true // Indexar para filtrar fácilmente
+  },
   // Campo para programación de cambio de plan
   scheduledPlanChange: {
     targetPlan: {

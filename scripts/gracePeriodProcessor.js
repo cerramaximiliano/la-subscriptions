@@ -142,10 +142,22 @@ async function processExpiredGracePeriods(taskConfig = null) {
     const now = new Date();
     
     // Buscar suscripciones con período de gracia de downgrade vencido
+    // NOTA: Esto incluye tanto suscripciones LIVE como TEST (testMode: true/false)
     const expiredSubscriptions = await Subscription.find({
       'downgradeGracePeriod.expiresAt': { $lt: now },
       'downgradeGracePeriod.autoArchiveScheduled': true
     }).populate('user');
+
+    // Contar cuántas son TEST vs LIVE
+    const testModeCount = expiredSubscriptions.filter(s => s.testMode).length;
+    const liveModeCount = expiredSubscriptions.length - testModeCount;
+
+    if (testModeCount > 0) {
+      logger.info(`   🧪 Suscripciones TEST a procesar: ${testModeCount}`);
+    }
+    if (liveModeCount > 0) {
+      logger.info(`   📊 Suscripciones LIVE a procesar: ${liveModeCount}`);
+    }
     
     logger.info(`Encontradas ${expiredSubscriptions.length} suscripciones con período vencido`);
     
@@ -155,8 +167,9 @@ async function processExpiredGracePeriods(taskConfig = null) {
       try {
         const user = subscription.user;
         if (!user) continue;
-        
-        logger.info(`[AUTO-ARCHIVE] Procesando usuario ${user.email}`);
+
+        const modeLabel = subscription.testMode ? '[TEST]' : '[LIVE]';
+        logger.info(`[AUTO-ARCHIVE] ${modeLabel} Procesando usuario ${user.email}`);
         
         // Realizar auto-archivado al plan destino (free)
         const targetPlan = subscription.downgradeGracePeriod.targetPlan || 'free';

@@ -25,7 +25,7 @@ app.use(cors({
 
 // Middleware para parsear JSON (excepto para webhook de Stripe)
 app.use((req, res, next) => {
-  if (req.originalUrl === '/api/webhook' || req.originalUrl === '/api/webhook/stripe') {
+  if (req.originalUrl === '/api/webhook' || req.originalUrl === '/api/webhook/stripe' || req.originalUrl === '/api/webhook-dev') {
     // Skip JSON parsing for Stripe webhook
     next();
   } else {
@@ -57,6 +57,7 @@ app.get('/', (req, res) => {
     endpoints: {
       health: '/health',
       webhook: '/api/webhook',
+      webhookTest: '/api/webhook-dev',
       cronConfig: '/api/cron-config'
     }
   });

@@ -195,6 +195,124 @@ exports.handleStripeWebhook = async (req, res) => {
 };
 
 /**
+ * Maneja los webhooks de Stripe en modo desarrollo
+ * Usa STRIPE_WEBHOOK_SECRET_DEV específicamente
+ * Este endpoint permite tener un webhook separado en Stripe Dashboard
+ * que apunte a tu servidor en producción pero con un secret diferente
+ */
+exports.handleStripeWebhookDev = async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET_DEV;
+
+  if (!endpointSecret) {
+    logger.error('❌ STRIPE_WEBHOOK_SECRET_DEV no está configurado');
+    return res.status(500).json({
+      error: 'Webhook de desarrollo no configurado',
+      message: 'STRIPE_WEBHOOK_SECRET_DEV no encontrado en variables de entorno'
+    });
+  }
+
+  let event;
+
+  try {
+    // Verificar la firma del webhook con el secret de desarrollo
+    if (sig) {
+      event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+      logger.info(`🔧 [DEV] Webhook verificado: ${event.type} - ID: ${event.id}`);
+
+      // Marcar como modo test
+      if (!event.livemode) {
+        logger.info('🧪 [DEV] Evento en modo TEST detectado');
+        global.currentWebhookTestMode = true;
+      } else {
+        logger.warn('⚠️  [DEV] Evento en modo LIVE recibido en endpoint de desarrollo');
+        global.currentWebhookTestMode = false;
+      }
+    } else {
+      logger.warn('⚠️  [DEV] No se encontró firma de webhook');
+      return res.status(400).send('Webhook Error: Firma requerida');
+    }
+  } catch (err) {
+    logger.error(`❌ [DEV] Error verificando webhook: ${err.message}`);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  // Log del tipo de evento recibido
+  logger.info(`📨 [DEV] Evento Stripe recibido: ${event.type}`);
+  logger.info(`📋 [DEV] Event ID: ${event.id}, Livemode: ${event.livemode}`);
+
+  // IMPORTANTE: Este microservicio solo maneja eventos de pagos fallidos/recuperación
+  const PAYMENT_EVENTS = [
+    'invoice.payment_failed',
+    'invoice.payment_succeeded',
+    'invoice.paid',
+    'charge.failed'
+  ];
+
+  // Si no es un evento de pagos, lo dejamos pasar
+  if (!PAYMENT_EVENTS.includes(event.type)) {
+    logger.info(`[DEV] [SKIP] Evento ${event.type} no es de pagos - ignorando en este servicio`);
+    return res.status(200).json({ received: true, processed: false, dev: true });
+  }
+
+  // Log más detallado del objeto principal
+  const obj = event.data.object;
+  logger.info(`🔍 [DEV] Procesando ${event.type}:`);
+  logger.info(`   - Invoice ID: ${obj.id}`);
+  logger.info(`   - Customer: ${obj.customer}`);
+  logger.info(`   - Subscription: ${obj.subscription || 'N/A'}`);
+  logger.info(`   - Amount: ${obj.amount_paid || obj.amount_due} ${obj.currency}`);
+
+  logger.debug('[DEV] Datos completos del evento:', JSON.stringify(event.data.object, null, 2));
+
+  // Procesar solo eventos de pagos
+  try {
+    switch (event.type) {
+      // Eventos de facturación y pagos
+      case 'invoice.paid':
+        await handleInvoicePaid(event);
+        break;
+
+      case 'invoice.payment_succeeded':
+        await handleInvoicePaymentSucceeded(event);
+        break;
+
+      case 'invoice.payment_failed':
+        await handleInvoicePaymentFailed(event);
+        break;
+
+      case 'charge.failed':
+        logger.warn(`[DEV] [CHARGE_FAILED] Cargo fallido: ${event.data.object.id}`);
+        break;
+
+      case 'customer.updated':
+        logger.info(`[DEV] Cliente actualizado: ${event.data.object.id}`);
+        break;
+
+      // Eventos no manejados
+      default:
+        logger.warn(`[DEV] Evento no manejado: ${event.type}`);
+    }
+
+    // Responder exitosamente
+    logger.info(`✅ [DEV] Webhook procesado exitosamente: ${event.type}`);
+    res.json({ received: true, type: event.type, dev: true });
+
+  } catch (error) {
+    logger.error(`❌ [DEV] Error procesando webhook ${event.type}:`, error);
+    logger.error('[DEV] Stack trace:', error.stack);
+
+    // Responder con éxito para evitar reintentos de Stripe
+    res.json({
+      received: true,
+      error: true,
+      message: error.message,
+      dev: true
+    });
+  }
+};
+
+/**
  * NOTA: Los siguientes handlers están comentados porque este microservicio
  * solo maneja eventos de pagos. La gestión de suscripciones se hace en el
  * servidor principal.
@@ -413,8 +531,9 @@ async function handleSubscriptionDeleted(event) {
  */
 async function handleInvoicePaid(event) {
   const invoice = event.data.object;
+  const isTestMode = !event.livemode; // Detectar si es modo TEST de Stripe
 
-  logger.info(`Factura pagada: ${invoice.id}`);
+  logger.info(`[${isTestMode ? 'TEST' : 'LIVE'}] Factura pagada: ${invoice.id}`);
   logger.info(`Monto: ${invoice.amount_paid / 100} ${invoice.currency.toUpperCase()}`);
   logger.info(`Cliente: ${invoice.customer}`);
   
@@ -436,6 +555,12 @@ async function handleInvoicePaid(event) {
         logger.info(`Suscripción encontrada en BD: ${dbSubscription._id}`);
         logger.info(`Estado actual: ${dbSubscription.status}, accountStatus: ${dbSubscription.accountStatus}`);
         logger.info(`Fallos de pago previos: ${dbSubscription.paymentFailures?.count || 0}`);
+
+        // Marcar como testMode si es necesario
+        if (isTestMode && !dbSubscription.testMode) {
+          dbSubscription.testMode = true;
+          logger.info(`[TEST] Marcando suscripción como testMode`);
+        }
         
         // IMPORTANTE: Solo procesar si es una recuperación de pago fallido
         if (dbSubscription.paymentFailures && dbSubscription.paymentFailures.count > 0) {
@@ -542,13 +667,14 @@ async function handleInvoicePaymentSucceeded(event) {
  */
 async function handleInvoicePaymentFailed(event) {
   const invoice = event.data.object;
+  const isTestMode = !event.livemode; // Detectar si es modo TEST de Stripe
   const Subscription = require('../models/Subscription');
   const User = require('../models/User');
   const Folder = require('../models/Folder');
   const Calculator = require('../models/Calculator');
   const Contact = require('../models/Contact');
 
-  logger.error(`Pago de factura fallido: ${invoice.id}`);
+  logger.error(`[${isTestMode ? 'TEST' : 'LIVE'}] Pago de factura fallido: ${invoice.id}`);
   logger.error(`Razón: ${invoice.last_payment_error?.message || 'Desconocida'}`);
 
   try {
@@ -560,6 +686,12 @@ async function handleInvoicePaymentFailed(event) {
     if (!subscription) {
       logger.error(`Subscription not found for invoice ${invoice.id}`);
       return;
+    }
+
+    // Marcar como testMode si es necesario
+    if (isTestMode && !subscription.testMode) {
+      subscription.testMode = true;
+      logger.info(`[TEST] Marcando suscripción como testMode`);
     }
 
     // IMPORTANTE: No procesar si la suscripción ya está cancelada
