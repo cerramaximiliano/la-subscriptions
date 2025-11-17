@@ -693,33 +693,71 @@ async function handleInvoicePaymentFailed(event) {
   logger.error(`[${isTestMode ? 'TEST' : 'LIVE'}] Pago de factura fallido: ${invoice.id}`);
   logger.error(`Razón: ${invoice.last_payment_error?.message || 'Desconocida'}`);
 
+  // DEBUG: Logging completo de la invoice
+  logger.info(`🔍 DEBUG Invoice fields: ${JSON.stringify({
+    id: invoice.id,
+    customer: invoice.customer,
+    subscription: invoice.subscription,
+    amount_due: invoice.amount_due,
+    status: invoice.status,
+    billing_reason: invoice.billing_reason,
+    collection_method: invoice.collection_method,
+    metadata: invoice.metadata
+  }, null, 2)}`);
+
   try {
-    // Verificar que la factura tenga una suscripción asociada
-    if (!invoice.subscription) {
-      logger.warn(`Invoice ${invoice.id} no tiene suscripción asociada (factura manual?)`);
-      return;
-    }
+    let subscription = null;
 
-    // Obtener la suscripción asociada (soportando estructura {test, live})
-    const subscriptionIdField = isTestMode ? 'stripeSubscriptionId.test' : 'stripeSubscriptionId.live';
+    // Intentar buscar por subscription ID primero
+    if (invoice.subscription) {
+      const subscriptionIdField = isTestMode ? 'stripeSubscriptionId.test' : 'stripeSubscriptionId.live';
 
-    let subscription = await Subscription.findOne({
-      [subscriptionIdField]: invoice.subscription
-    });
-
-    // Fallback: intentar búsqueda directa para compatibilidad con estructura antigua
-    if (!subscription) {
       subscription = await Subscription.findOne({
-        stripeSubscriptionId: invoice.subscription
+        [subscriptionIdField]: invoice.subscription
       });
+
+      // Fallback: intentar búsqueda directa para compatibilidad con estructura antigua
+      if (!subscription) {
+        subscription = await Subscription.findOne({
+          stripeSubscriptionId: invoice.subscription
+        });
+      }
+
+      if (subscription) {
+        logger.info(`✅ Suscripción encontrada por ID: ${subscription._id} (${subscriptionIdField})`);
+      }
     }
 
+    // FALLBACK: Si no hay invoice.subscription o no se encontró, buscar por customer
     if (!subscription) {
-      logger.error(`Subscription not found for invoice ${invoice.id}, subscription ID: ${invoice.subscription}, mode: ${isTestMode ? 'TEST' : 'LIVE'}`);
+      logger.warn(`Invoice ${invoice.id} ${invoice.subscription ? 'tiene subscription ID pero no se encontró en BD' : 'no tiene suscripción asociada'}`);
+      logger.info(`🔄 Intentando buscar suscripción por customer: ${invoice.customer}`);
+
+      const customerIdField = isTestMode ? 'stripeCustomerId.test' : 'stripeCustomerId.live';
+
+      subscription = await Subscription.findOne({
+        [customerIdField]: invoice.customer,
+        status: { $in: ['active', 'past_due', 'unpaid'] }
+      }).sort({ updatedAt: -1 });
+
+      // Fallback para estructura antigua
+      if (!subscription) {
+        subscription = await Subscription.findOne({
+          stripeCustomerId: invoice.customer,
+          status: { $in: ['active', 'past_due', 'unpaid'] }
+        }).sort({ updatedAt: -1 });
+      }
+
+      if (subscription) {
+        logger.info(`✅ Suscripción encontrada por customer: ${subscription._id}`);
+      }
+    }
+
+    // Si no se encontró por ningún método, salir
+    if (!subscription) {
+      logger.error(`No se encontró suscripción para invoice ${invoice.id} (customer: ${invoice.customer}, subscription: ${invoice.subscription || 'N/A'})`);
       return;
     }
-
-    logger.info(`✅ Suscripción encontrada: ${subscription._id} (${subscriptionIdField})`);
 
 
     // Marcar como testMode si es necesario
@@ -730,7 +768,7 @@ async function handleInvoicePaymentFailed(event) {
 
     // IMPORTANTE: No procesar si la suscripción ya está cancelada
     if (subscription.status === 'canceled') {
-      logger.info(`[SKIP] Suscripción ${invoice.subscription} ya está cancelada`);
+      logger.info(`[SKIP] Suscripción ${subscription._id} ya está cancelada`);
       return;
     }
     
