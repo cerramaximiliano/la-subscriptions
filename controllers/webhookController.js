@@ -847,7 +847,7 @@ async function handleInvoicePaymentFailed(event) {
 
           const updatePaymentUrl = await generateUpdatePaymentUrl(
             stripeCustomerId,
-            `${process.env.BASE_URL}/billing/payment-updated`
+            `${process.env.BASE_URL}/apps/profiles/account/settings`
           );
 
           await emailService.sendPaymentFailedEmail(user.email, {
@@ -885,7 +885,7 @@ async function handleInvoicePaymentFailed(event) {
             currentUsage,
             updatePaymentUrl: await generateUpdatePaymentUrl(
               stripeCustomerId,
-              `${process.env.BASE_URL}/billing/payment-updated`
+              `${process.env.BASE_URL}/apps/profiles/account/settings`
             )
           }, 'second');
           
@@ -916,7 +916,7 @@ async function handleInvoicePaymentFailed(event) {
             affectedFeatures,
             updatePaymentUrl: await generateUpdatePaymentUrl(
               stripeCustomerId,
-              `${process.env.BASE_URL}/billing/payment-updated`
+              `${process.env.BASE_URL}/apps/profiles/account/settings`
             )
           }, 'final');
           
@@ -958,7 +958,7 @@ async function handleInvoicePaymentFailed(event) {
 
           const updatePaymentUrl = await generateUpdatePaymentUrl(
             stripeCustomerId,
-            `${process.env.BASE_URL}/billing/payment-updated`
+            `${process.env.BASE_URL}/apps/profiles/account/settings`
           );
 
           await emailService.sendPaymentFailedEmail(user.email, {

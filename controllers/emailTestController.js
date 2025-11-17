@@ -367,7 +367,7 @@ exports.sendTestEmail = async (req, res) => {
         if (subscription && subscription.stripeCustomerId) {
           emailData.updatePaymentUrl = await generateUpdatePaymentUrl(
             subscription.stripeCustomerId,
-            `${process.env.BASE_URL}/billing/payment-updated`
+            `${process.env.BASE_URL}/apps/profiles/account/settings`
           );
         }
       } catch (error) {
@@ -504,7 +504,7 @@ exports.sendAllTestEmails = async (req, res) => {
             if (subscription && subscription.stripeCustomerId) {
               emailData.updatePaymentUrl = await generateUpdatePaymentUrl(
                 subscription.stripeCustomerId,
-                `${process.env.BASE_URL}/billing/payment-updated`
+                `${process.env.BASE_URL}/apps/profiles/account/settings`
               );
             }
           } catch (error) {
