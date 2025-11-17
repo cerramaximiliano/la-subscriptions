@@ -822,14 +822,22 @@ async function handleInvoicePaymentFailed(event) {
         
         if (!subscription.paymentFailures.notificationsSent.firstWarning.sent) {
           // Generar URL dinámica del Customer Portal de Stripe
+          const stripeCustomerId = isTestMode ?
+            (subscription.stripeCustomerId?.test || subscription.stripeCustomerId) :
+            (subscription.stripeCustomerId?.live || subscription.stripeCustomerId);
+
           const updatePaymentUrl = await generateUpdatePaymentUrl(
-            subscription.stripeCustomerId,
+            stripeCustomerId,
             `${process.env.BASE_URL}/billing/payment-updated`
           );
 
+          const stripePriceId = isTestMode ?
+            (subscription.stripePriceId?.test || subscription.stripePriceId) :
+            (subscription.stripePriceId?.live || subscription.stripePriceId);
+
           await emailService.sendPaymentFailedEmail(user.email, {
             userName: user.firstName || user.name || user.email.split('@')[0],
-            planName: getPlanNameFromPriceId(subscription.stripePriceId),
+            planName: getPlanNameFromPriceId(stripePriceId),
             amount: invoice.amount_due / 100,
             currency: invoice.currency.toUpperCase(),
             nextRetryDate: subscription.paymentFailures.nextRetryAt,
@@ -848,14 +856,22 @@ async function handleInvoicePaymentFailed(event) {
         // Segundo fallo - Advertencia
         if (!subscription.paymentFailures.notificationsSent.secondWarning.sent) {
           const currentUsage = await calculateCurrentUsage(user._id);
-          
+
+          const stripeCustomerId = isTestMode ?
+            (subscription.stripeCustomerId?.test || subscription.stripeCustomerId) :
+            (subscription.stripeCustomerId?.live || subscription.stripeCustomerId);
+
+          const stripePriceId = isTestMode ?
+            (subscription.stripePriceId?.test || subscription.stripePriceId) :
+            (subscription.stripePriceId?.live || subscription.stripePriceId);
+
           await emailService.sendPaymentFailedEmail(user.email, {
             userName: user.firstName || user.name || user.email.split('@')[0],
-            planName: getPlanNameFromPriceId(subscription.stripePriceId),
+            planName: getPlanNameFromPriceId(stripePriceId),
             daysUntilSuspension: 3,
             currentUsage,
             updatePaymentUrl: await generateUpdatePaymentUrl(
-              subscription.stripeCustomerId,
+              stripeCustomerId,
               `${process.env.BASE_URL}/billing/payment-updated`
             )
           }, 'second');
@@ -870,18 +886,26 @@ async function handleInvoicePaymentFailed(event) {
       case 3:
         // Tercer fallo - Advertencia final + Suspensión parcial
         subscription.accountStatus = 'suspended';
-        
+
         if (!subscription.paymentFailures.notificationsSent.finalWarning.sent) {
           // Obtener características dinámicamente desde PlanConfig
           const affectedFeatures = await getPremiumFeaturesFromConfig(subscription.plan);
-          
+
+          const stripeCustomerId = isTestMode ?
+            (subscription.stripeCustomerId?.test || subscription.stripeCustomerId) :
+            (subscription.stripeCustomerId?.live || subscription.stripeCustomerId);
+
+          const stripePriceId = isTestMode ?
+            (subscription.stripePriceId?.test || subscription.stripePriceId) :
+            (subscription.stripePriceId?.live || subscription.stripePriceId);
+
           await emailService.sendPaymentFailedEmail(user.email, {
             userName: user.firstName || user.name || user.email.split('@')[0],
-            planName: getPlanNameFromPriceId(subscription.stripePriceId),
+            planName: getPlanNameFromPriceId(stripePriceId),
             suspensionDate: new Date(),
             affectedFeatures,
             updatePaymentUrl: await generateUpdatePaymentUrl(
-              subscription.stripeCustomerId,
+              stripeCustomerId,
               `${process.env.BASE_URL}/billing/payment-updated`
             )
           }, 'final');
@@ -916,16 +940,24 @@ async function handleInvoicePaymentFailed(event) {
 
         if (!subscription.paymentFailures.notificationsSent.suspensionNotice.sent) {
           const itemsToArchive = await calculateItemsToArchive(user._id, subscription.plan);
-          
+
           // Generar URL del portal para actualizar pago
+          const stripeCustomerId = isTestMode ?
+            (subscription.stripeCustomerId?.test || subscription.stripeCustomerId) :
+            (subscription.stripeCustomerId?.live || subscription.stripeCustomerId);
+
           const updatePaymentUrl = await generateUpdatePaymentUrl(
-            subscription.stripeCustomerId,
+            stripeCustomerId,
             `${process.env.BASE_URL}/billing/payment-updated`
           );
-          
+
+          const stripePriceId = isTestMode ?
+            (subscription.stripePriceId?.test || subscription.stripePriceId) :
+            (subscription.stripePriceId?.live || subscription.stripePriceId);
+
           await emailService.sendPaymentFailedEmail(user.email, {
             userName: user.firstName || user.name || user.email.split('@')[0],
-            planName: getPlanNameFromPriceId(subscription.stripePriceId),
+            planName: getPlanNameFromPriceId(stripePriceId),
             gracePeriodEndDate: subscription.downgradeGracePeriod.expiresAt,
             itemsToArchive,
             updatePaymentUrl,
