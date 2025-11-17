@@ -780,7 +780,7 @@ async function handleInvoicePaymentFailed(event) {
     
     // NUEVO: Validar que no sea un plan gratuito
     const planConfig = await PlanConfig.findOne({ planId: subscription.plan });
-    if (planConfig && planConfig.pricingInfo.basePrice === 0) {
+    if (planConfig && planConfig.pricingInfo && planConfig.pricingInfo.basePrice === 0) {
       logger.warn(`[SKIP] Ignorando pago fallido para plan gratuito: ${subscription.plan}`);
       return;
     }
