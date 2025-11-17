@@ -852,6 +852,7 @@ async function handleInvoicePaymentFailed(event) {
 
           await emailService.sendPaymentFailedEmail(user.email, {
             userName: user.firstName || user.name || user.email.split('@')[0],
+            userEmail: user.email,
             planName: getPlanDisplayName(subscription.plan),
             amount: invoice.amount_due / 100,
             currency: invoice.currency.toUpperCase(),
@@ -878,6 +879,7 @@ async function handleInvoicePaymentFailed(event) {
 
           await emailService.sendPaymentFailedEmail(user.email, {
             userName: user.firstName || user.name || user.email.split('@')[0],
+            userEmail: user.email,
             planName: getPlanDisplayName(subscription.plan),
             daysUntilSuspension: 3,
             currentUsage,
@@ -908,6 +910,7 @@ async function handleInvoicePaymentFailed(event) {
 
           await emailService.sendPaymentFailedEmail(user.email, {
             userName: user.firstName || user.name || user.email.split('@')[0],
+            userEmail: user.email,
             planName: getPlanDisplayName(subscription.plan),
             suspensionDate: new Date(),
             affectedFeatures,
@@ -960,8 +963,11 @@ async function handleInvoicePaymentFailed(event) {
 
           await emailService.sendPaymentFailedEmail(user.email, {
             userName: user.firstName || user.name || user.email.split('@')[0],
+            userEmail: user.email,
             planName: getPlanDisplayName(subscription.plan),
-            gracePeriodEndDate: subscription.downgradeGracePeriod.expiresAt,
+            suspensionDate: new Date(), // Se formateará en emailService
+            gracePeriodEnd: subscription.downgradeGracePeriod.expiresAt, // Para template de BD
+            gracePeriodEndDate: subscription.downgradeGracePeriod.expiresAt, // Para template hardcoded (fallback)
             itemsToArchive,
             updatePaymentUrl,
             supportEmail: process.env.SUPPORT_EMAIL || 'support@company.com'

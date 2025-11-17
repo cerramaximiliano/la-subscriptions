@@ -1078,7 +1078,8 @@ exports.sendPaymentFailedEmail = async (to, data, type) => {
       nextRetryDate: data.nextRetryDate ? new Date(data.nextRetryDate).toLocaleDateString('es-ES') : 'No programado',
       // Para el template paymentFailedFinal
       suspensionDate: data.suspensionDate ? new Date(data.suspensionDate).toLocaleDateString('es-ES') : '',
-      // Para el template paymentFailedSuspension
+      // Para el template paymentFailedSuspension (template de BD usa gracePeriodEnd)
+      gracePeriodEnd: data.gracePeriodEnd ? new Date(data.gracePeriodEnd).toLocaleDateString('es-ES') : '',
       gracePeriodEndDate: data.gracePeriodEndDate ? new Date(data.gracePeriodEndDate).toLocaleDateString('es-ES') : '',
       supportEmail: process.env.SUPPORT_EMAIL || 'soporte@tuapp.com'
     };
