@@ -57,14 +57,11 @@ const checkPaymentRecovery = async () => {
           await subscription.save();
 
           // Reactivar características premium si estaban suspendidas
-          const user = await User.findById(subscription.user);
-          if (user && user.subscription?.suspended) {
-            user.subscription.suspended = false;
-            user.subscription.suspendedAt = null;
-            await user.save();
-          }
+          // El estado 'suspended' ya está manejado en subscription.accountStatus
+          // No es necesario modificar el modelo User
 
           // Enviar email de confirmación
+          const user = await User.findById(subscription.user);
           if (user) {
             await sendPaymentRecoveredEmail(user.email, {
               userName: user.firstName || user.name || user.email.split('@')[0],

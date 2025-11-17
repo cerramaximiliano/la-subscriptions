@@ -1068,13 +1068,19 @@ function getPremiumFeatures(planName) {
 }
 
 async function suspendPremiumFeatures(userId) {
-  const User = require('../models/User');
-  
-  // Marcar al usuario con acceso limitado
-  await User.findByIdAndUpdate(userId, {
-    'subscription.suspended': true,
-    'subscription.suspendedAt': new Date()
-  });
+  const Subscription = require('../models/Subscription');
+
+  // Marcar la suscripción con estado suspendido (solo LIVE)
+  await Subscription.findOneAndUpdate(
+    {
+      user: userId,
+      testMode: { $ne: true }  // Solo suscripciones LIVE
+    },
+    {
+      accountStatus: 'suspended',
+      'paymentFailures.lastFailedAt': new Date()
+    }
+  );
 }
 
 async function calculateItemsToArchive(userId, currentPlan) {
