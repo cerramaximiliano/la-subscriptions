@@ -698,6 +698,8 @@ async function handleInvoicePaymentFailed(event) {
     id: invoice.id,
     customer: invoice.customer,
     subscription: invoice.subscription,
+    parent_subscription: invoice.parent?.subscription_details?.subscription,
+    lines_subscription: invoice.lines?.data?.[0]?.parent?.subscription_item_details?.subscription,
     amount_due: invoice.amount_due,
     status: invoice.status,
     billing_reason: invoice.billing_reason,
@@ -707,19 +709,31 @@ async function handleInvoicePaymentFailed(event) {
 
   try {
     let subscription = null;
+    let stripeSubscriptionId = null;
+
+    // Extraer subscription ID de múltiples ubicaciones posibles (Stripe API v2025-04-30)
+    if (invoice.subscription) {
+      stripeSubscriptionId = invoice.subscription;
+    } else if (invoice.parent?.subscription_details?.subscription) {
+      stripeSubscriptionId = invoice.parent.subscription_details.subscription;
+      logger.info(`📍 Subscription ID encontrado en invoice.parent.subscription_details: ${stripeSubscriptionId}`);
+    } else if (invoice.lines?.data?.[0]?.parent?.subscription_item_details?.subscription) {
+      stripeSubscriptionId = invoice.lines.data[0].parent.subscription_item_details.subscription;
+      logger.info(`📍 Subscription ID encontrado en invoice.lines: ${stripeSubscriptionId}`);
+    }
 
     // Intentar buscar por subscription ID primero
-    if (invoice.subscription) {
+    if (stripeSubscriptionId) {
       const subscriptionIdField = isTestMode ? 'stripeSubscriptionId.test' : 'stripeSubscriptionId.live';
 
       subscription = await Subscription.findOne({
-        [subscriptionIdField]: invoice.subscription
+        [subscriptionIdField]: stripeSubscriptionId
       });
 
       // Fallback: intentar búsqueda directa para compatibilidad con estructura antigua
       if (!subscription) {
         subscription = await Subscription.findOne({
-          stripeSubscriptionId: invoice.subscription
+          stripeSubscriptionId: stripeSubscriptionId
         });
       }
 
@@ -728,9 +742,9 @@ async function handleInvoicePaymentFailed(event) {
       }
     }
 
-    // FALLBACK: Si no hay invoice.subscription o no se encontró, buscar por customer
+    // FALLBACK: Si no hay subscription ID o no se encontró, buscar por customer
     if (!subscription) {
-      logger.warn(`Invoice ${invoice.id} ${invoice.subscription ? 'tiene subscription ID pero no se encontró en BD' : 'no tiene suscripción asociada'}`);
+      logger.warn(`Invoice ${invoice.id} ${stripeSubscriptionId ? `tiene subscription ID (${stripeSubscriptionId}) pero no se encontró en BD` : 'no tiene suscripción asociada'}`);
       logger.info(`🔄 Intentando buscar suscripción por customer: ${invoice.customer}`);
 
       const customerIdField = isTestMode ? 'stripeCustomerId.test' : 'stripeCustomerId.live';
@@ -755,7 +769,7 @@ async function handleInvoicePaymentFailed(event) {
 
     // Si no se encontró por ningún método, salir
     if (!subscription) {
-      logger.error(`No se encontró suscripción para invoice ${invoice.id} (customer: ${invoice.customer}, subscription: ${invoice.subscription || 'N/A'})`);
+      logger.error(`No se encontró suscripción para invoice ${invoice.id} (customer: ${invoice.customer}, subscription: ${stripeSubscriptionId || 'N/A'})`);
       return;
     }
 
