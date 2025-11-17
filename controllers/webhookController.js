@@ -807,7 +807,26 @@ async function handleInvoicePaymentFailed(event) {
       subscription.paymentFailures.firstFailedAt = new Date();
     }
     subscription.paymentFailures.lastFailedAt = new Date();
-    subscription.paymentFailures.lastFailureReason = invoice.last_payment_error?.message || 'Unknown error';
+
+    // Obtener razón del fallo con mejor contexto
+    let failureReason = 'Problema al procesar el pago';
+    if (invoice.last_payment_error?.message) {
+      failureReason = invoice.last_payment_error.message;
+    } else if (invoice.last_payment_error?.code) {
+      const errorMessages = {
+        'card_declined': 'Tu tarjeta fue rechazada',
+        'insufficient_funds': 'Fondos insuficientes',
+        'expired_card': 'Tu tarjeta ha expirado',
+        'incorrect_cvc': 'Código de seguridad incorrecto',
+        'processing_error': 'Error al procesar el pago',
+        'incorrect_number': 'Número de tarjeta incorrecto'
+      };
+      failureReason = errorMessages[invoice.last_payment_error.code] || `Error: ${invoice.last_payment_error.code}`;
+    } else if (invoice.status === 'open' && invoice.attempted) {
+      failureReason = 'No se pudo procesar el pago. Por favor, verifica tu método de pago.';
+    }
+
+    subscription.paymentFailures.lastFailureReason = failureReason;
     subscription.paymentFailures.lastFailureCode = invoice.last_payment_error?.code;
     subscription.paymentFailures.nextRetryAt = invoice.next_payment_attempt ? new Date(invoice.next_payment_attempt * 1000) : null;
 
@@ -831,13 +850,9 @@ async function handleInvoicePaymentFailed(event) {
             `${process.env.BASE_URL}/billing/payment-updated`
           );
 
-          const stripePriceId = isTestMode ?
-            (subscription.stripePriceId?.test || subscription.stripePriceId) :
-            (subscription.stripePriceId?.live || subscription.stripePriceId);
-
           await emailService.sendPaymentFailedEmail(user.email, {
             userName: user.firstName || user.name || user.email.split('@')[0],
-            planName: getPlanNameFromPriceId(stripePriceId),
+            planName: getPlanDisplayName(subscription.plan),
             amount: invoice.amount_due / 100,
             currency: invoice.currency.toUpperCase(),
             nextRetryDate: subscription.paymentFailures.nextRetryAt,
@@ -861,13 +876,9 @@ async function handleInvoicePaymentFailed(event) {
             (subscription.stripeCustomerId?.test || subscription.stripeCustomerId) :
             (subscription.stripeCustomerId?.live || subscription.stripeCustomerId);
 
-          const stripePriceId = isTestMode ?
-            (subscription.stripePriceId?.test || subscription.stripePriceId) :
-            (subscription.stripePriceId?.live || subscription.stripePriceId);
-
           await emailService.sendPaymentFailedEmail(user.email, {
             userName: user.firstName || user.name || user.email.split('@')[0],
-            planName: getPlanNameFromPriceId(stripePriceId),
+            planName: getPlanDisplayName(subscription.plan),
             daysUntilSuspension: 3,
             currentUsage,
             updatePaymentUrl: await generateUpdatePaymentUrl(
@@ -895,13 +906,9 @@ async function handleInvoicePaymentFailed(event) {
             (subscription.stripeCustomerId?.test || subscription.stripeCustomerId) :
             (subscription.stripeCustomerId?.live || subscription.stripeCustomerId);
 
-          const stripePriceId = isTestMode ?
-            (subscription.stripePriceId?.test || subscription.stripePriceId) :
-            (subscription.stripePriceId?.live || subscription.stripePriceId);
-
           await emailService.sendPaymentFailedEmail(user.email, {
             userName: user.firstName || user.name || user.email.split('@')[0],
-            planName: getPlanNameFromPriceId(stripePriceId),
+            planName: getPlanDisplayName(subscription.plan),
             suspensionDate: new Date(),
             affectedFeatures,
             updatePaymentUrl: await generateUpdatePaymentUrl(
@@ -951,13 +958,9 @@ async function handleInvoicePaymentFailed(event) {
             `${process.env.BASE_URL}/billing/payment-updated`
           );
 
-          const stripePriceId = isTestMode ?
-            (subscription.stripePriceId?.test || subscription.stripePriceId) :
-            (subscription.stripePriceId?.live || subscription.stripePriceId);
-
           await emailService.sendPaymentFailedEmail(user.email, {
             userName: user.firstName || user.name || user.email.split('@')[0],
-            planName: getPlanNameFromPriceId(stripePriceId),
+            planName: getPlanDisplayName(subscription.plan),
             gracePeriodEndDate: subscription.downgradeGracePeriod.expiresAt,
             itemsToArchive,
             updatePaymentUrl,
@@ -1133,6 +1136,22 @@ function getPlanNameFromPriceId(priceId) {
   };
 
   return planMapping[priceId] || 'Desconocido';
+}
+
+/**
+ * Obtener nombre del plan desde el ID del plan (mejor que desde price ID)
+ */
+function getPlanDisplayName(planId) {
+  const planNames = {
+    'free': 'Gratuito',
+    'standard': 'Estándar',
+    'standard_dev': 'Estándar (development)',
+    'premium': 'Premium',
+    'premium_dev': 'Premium (development)',
+    'enterprise': 'Enterprise'
+  };
+
+  return planNames[planId?.toLowerCase()] || planId || 'Plan desconocido';
 }
 
 // Obtener límites del plan desde PlanConfig
