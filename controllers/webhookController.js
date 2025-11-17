@@ -489,8 +489,9 @@ async function handlePlanChange(subscription, oldPriceId, newPriceId, user) {
  */
 async function handleSubscriptionDeleted(event) {
   const subscription = event.data.object;
+  const isTestMode = !event.livemode;
 
-  logger.info(`Suscripción eliminada/cancelada: 
+  logger.info(`Suscripción eliminada/cancelada:
   ${subscription.id}`);
   logger.info(`Cliente: ${subscription.customer}`);
 
@@ -501,15 +502,22 @@ async function handleSubscriptionDeleted(event) {
   if (user) {
     const gracePeriodEnd = new Date(Date.now() + 15 * 24 * 60 * 60
       * 1000).toLocaleDateString('es-ES');
-    
+
     // Verificar que items existe antes de acceder
     let previousPlan = 'Desconocido';
     if (subscription.items && subscription.items.data && subscription.items.data[0] && subscription.items.data[0].price) {
       previousPlan = getPlanNameFromPriceId(subscription.items.data[0].price.id);
     } else {
       logger.warn('subscription.items no está definido en el evento deleted');
-      // Intentar obtener el plan de la base de datos
-      const dbSubscription = await Subscription.findOne({ stripeSubscriptionId: subscription.id });
+      // Intentar obtener el plan de la base de datos usando estructura {test, live}
+      const subscriptionIdField = isTestMode ? 'stripeSubscriptionId.test' : 'stripeSubscriptionId.live';
+      let dbSubscription = await Subscription.findOne({ [subscriptionIdField]: subscription.id });
+
+      // Fallback para estructura antigua
+      if (!dbSubscription) {
+        dbSubscription = await Subscription.findOne({ stripeSubscriptionId: subscription.id });
+      }
+
       if (dbSubscription) {
         previousPlan = dbSubscription.plan || 'Desconocido';
       }
@@ -540,17 +548,25 @@ async function handleInvoicePaid(event) {
   // Debugging adicional
   if (invoice.subscription) {
     logger.info(`Factura asociada a suscripción: ${invoice.subscription}`);
-    
+
     // Los webhooks de invoice normalmente incluyen información limitada sobre la suscripción
     // En producción, Stripe puede expandir automáticamente ciertos campos
     // Para desarrollo, trabajamos con los datos que tenemos
-    
+
     try {
-      // Buscar la suscripción en nuestra base de datos
-      const dbSubscription = await Subscription.findOne({ 
-        stripeSubscriptionId: invoice.subscription 
+      // Buscar la suscripción en nuestra base de datos usando estructura {test, live}
+      const subscriptionIdField = isTestMode ? 'stripeSubscriptionId.test' : 'stripeSubscriptionId.live';
+      let dbSubscription = await Subscription.findOne({
+        [subscriptionIdField]: invoice.subscription
       });
-      
+
+      // Fallback para estructura antigua
+      if (!dbSubscription) {
+        dbSubscription = await Subscription.findOne({
+          stripeSubscriptionId: invoice.subscription
+        });
+      }
+
       if (dbSubscription) {
         logger.info(`Suscripción encontrada en BD: ${dbSubscription._id}`);
         logger.info(`Estado actual: ${dbSubscription.status}, accountStatus: ${dbSubscription.accountStatus}`);
@@ -678,15 +694,33 @@ async function handleInvoicePaymentFailed(event) {
   logger.error(`Razón: ${invoice.last_payment_error?.message || 'Desconocida'}`);
 
   try {
-    // Obtener la suscripción asociada
-    const subscription = await Subscription.findOne({ 
-      stripeSubscriptionId: invoice.subscription 
-    });
-    
-    if (!subscription) {
-      logger.error(`Subscription not found for invoice ${invoice.id}`);
+    // Verificar que la factura tenga una suscripción asociada
+    if (!invoice.subscription) {
+      logger.warn(`Invoice ${invoice.id} no tiene suscripción asociada (factura manual?)`);
       return;
     }
+
+    // Obtener la suscripción asociada (soportando estructura {test, live})
+    const subscriptionIdField = isTestMode ? 'stripeSubscriptionId.test' : 'stripeSubscriptionId.live';
+
+    let subscription = await Subscription.findOne({
+      [subscriptionIdField]: invoice.subscription
+    });
+
+    // Fallback: intentar búsqueda directa para compatibilidad con estructura antigua
+    if (!subscription) {
+      subscription = await Subscription.findOne({
+        stripeSubscriptionId: invoice.subscription
+      });
+    }
+
+    if (!subscription) {
+      logger.error(`Subscription not found for invoice ${invoice.id}, subscription ID: ${invoice.subscription}, mode: ${isTestMode ? 'TEST' : 'LIVE'}`);
+      return;
+    }
+
+    logger.info(`✅ Suscripción encontrada: ${subscription._id} (${subscriptionIdField})`);
+
 
     // Marcar como testMode si es necesario
     if (isTestMode && !subscription.testMode) {
