@@ -80,9 +80,9 @@ exports.testWebhook = async (req, res) => {
 exports.handleStripeWebhook = async (req, res) => {
   const sig = req.headers['stripe-signature'];
   const endpointSecret = process.env.NODE_ENV === 'production'
-    ? process.env.STRIPE_WEBHOOK_SECRET
+    ? process.env.STRIPE_WEBHOOK_SECRET_PAYMENTS
     : process.env.STRIPE_WEBHOOK_SECRET_DEV ||
-    process.env.STRIPE_WEBHOOK_SECRET;
+    process.env.STRIPE_WEBHOOK_SECRET_PAYMENTS;
 
   let event;
 
