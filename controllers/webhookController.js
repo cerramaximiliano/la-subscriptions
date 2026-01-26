@@ -798,7 +798,16 @@ async function handleInvoicePaymentFailed(event) {
       logger.warn(`[SKIP] Ignorando pago fallido para plan gratuito: ${subscription.plan}`);
       return;
     }
-    
+
+    // IMPORTANTE: No procesar si es el primer pago de una nueva suscripción (billing_reason: subscription_create)
+    // Este caso se maneja en law-analytics-server - la suscripción quedará en estado 'incomplete'
+    // y NO se debe enviar la secuencia de emails de reintentos ya que el usuario nunca tuvo una suscripción activa
+    if (invoice.billing_reason === 'subscription_create') {
+      logger.info(`[SKIP] Ignorando pago fallido para creación de suscripción (billing_reason: subscription_create). Invoice: ${invoice.id}`);
+      logger.info(`[INFO] Este caso se maneja en law-analytics-server - la suscripción quedará en estado 'incomplete' sin actualizar el plan`);
+      return;
+    }
+
     // Incrementar contador de fallos
     subscription.paymentFailures.count += 1;
     
