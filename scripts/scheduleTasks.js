@@ -33,22 +33,9 @@ function setupScheduledTasks() {
     timezone: process.env.TZ || 'America/Sao_Paulo'
   });
 
-  // Tarea 2: Enviar recordatorios adicionales (diariamente a las 10:00 AM)
-  // Mantener por compatibilidad con recordatorios de email service
-  cron.schedule('0 10 * * *', async () => {
-    logger.info('===== INICIO: Recordatorios adicionales =====');
-    try {
-      // El procesador principal ya maneja recordatorios, pero esto es un respaldo
-      await emailService.sendGracePeriodReminders();
-      logger.info('✅ Recordatorios adicionales enviados');
-    } catch (error) {
-      logger.error('❌ Error enviando recordatorios adicionales:', error);
-    }
-    logger.info('===== FIN: Recordatorios adicionales =====');
-  }, {
-    scheduled: true,
-    timezone: process.env.TZ || 'America/Sao_Paulo'
-  });
+  // Tarea 2: Deshabilitada - Los recordatorios ya son manejados por processGracePeriods() (Tarea 1)
+  // La función sendGracePeriodReminders() usaba un flag distinto (reminderSent) que causaba
+  // envíos duplicados cuando Tarea 1 ya había enviado el correo con reminder3DaysSent.
 
   // Tarea 4: Sincronización con Stripe (cada 6 horas)
   cron.schedule('0 */6 * * *', async () => {

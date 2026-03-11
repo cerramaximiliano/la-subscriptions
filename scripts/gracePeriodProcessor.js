@@ -603,7 +603,6 @@ async function sendGracePeriodReminders(taskConfig = null) {
           };
 
           if (daysRemaining <= 1 && !subscription.downgradeGracePeriod.reminder1DaySent) {
-            emailData.daysRemaining = 1;
             await emailService.sendSubscriptionEmail(user, 'gracePeriodReminder', emailData);
 
             logger.info(`[UPDATE FLAG] Actualizando reminder1DaysSent para subscription ${subscription._id}`);
@@ -615,7 +614,6 @@ async function sendGracePeriodReminders(taskConfig = null) {
 
             sentCount++;
           } else if (daysRemaining <= 3 && !subscription.downgradeGracePeriod.reminder3DaysSent) {
-            emailData.daysRemaining = 3;
             await emailService.sendSubscriptionEmail(user, 'gracePeriodReminder', emailData);
 
             logger.info(`[UPDATE FLAG] Actualizando reminder3DaysSent para subscription ${subscription._id}`);
