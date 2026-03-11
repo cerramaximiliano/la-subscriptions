@@ -19,6 +19,7 @@ const Alert = require('../models/Alert');
 const PlanConfig = require('../models/PlanConfig');
 const CronTaskConfig = require('../models/CronTaskConfig');
 const Group = require('../models/Group');
+const SystemConfig = require('../models/SystemConfig');
 
 /**
  * Función principal que procesa períodos de gracia
@@ -258,12 +259,13 @@ async function processPaymentGracePeriods(taskConfig = null) {
   try {
     const now = new Date();
     
-    // Buscar suscripciones en grace_period que han pasado 15 días
+    // Buscar suscripciones en grace_period que han pasado el período configurado
+    const { paymentGraceDays } = await SystemConfig.getGraceConfig();
     const expiredPaymentGrace = await Subscription.find({
       accountStatus: 'grace_period',
       'paymentFailures.count': { $gte: 4 },
-      'paymentFailures.firstFailedAt': { 
-        $lte: new Date(now.getTime() - 15 * 24 * 60 * 60 * 1000) 
+      'paymentFailures.firstFailedAt': {
+        $lte: new Date(now.getTime() - paymentGraceDays * 24 * 60 * 60 * 1000)
       }
     }).populate('user');
     
@@ -668,14 +670,16 @@ async function sendGracePeriodReminders(taskConfig = null) {
             // Calcular impacto sobre el grupo
             const groupImpact = await calculateGroupImpact(user._id, targetPlan);
 
-            // Calcular fecha de expiración del período de gracia (15 días desde primer fallo)
+            // Calcular fecha de expiración del período de gracia (días configurados desde primer fallo)
+            const { paymentGraceDays: payGraceDays } = await SystemConfig.getGraceConfig();
             const gracePeriodEndDate = new Date(subscription.paymentFailures.firstFailedAt);
-            gracePeriodEndDate.setDate(gracePeriodEndDate.getDate() + 15);
+            gracePeriodEndDate.setDate(gracePeriodEndDate.getDate() + payGraceDays);
+            const paymentDaysRemaining = Math.max(0, Math.ceil((gracePeriodEndDate - new Date()) / (1000 * 60 * 60 * 24)));
 
             await emailService.sendSubscriptionEmail(user, 'gracePeriodReminder', {
               planName: subscription.plan,
               targetPlan: targetPlan,
-              daysRemaining: 15,
+              daysRemaining: paymentDaysRemaining,
               gracePeriodEnd: gracePeriodEndDate.toLocaleDateString('es-ES'),
               // Recursos actuales
               currentFolders: resources.current.folders,
