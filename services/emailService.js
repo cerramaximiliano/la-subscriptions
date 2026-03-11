@@ -973,7 +973,7 @@ exports.sendEmail = async (to, templateName, data, options = {}) => {
     logger.info(`MessageId: ${response.MessageId}`);
     logger.info(`Template: ${templateName} (${template.fromDB ? 'BD' : 'código'}), To: ${actualRecipient}${originalEmail !== actualRecipient ? ` (originalmente para: ${originalEmail})` : ''}`);
 
-    await createEmailLog({
+    createEmailLog({
       to: originalEmail,
       userId: options.userId || null,
       subject: subjectContent,
@@ -996,7 +996,7 @@ exports.sendEmail = async (to, templateName, data, options = {}) => {
       logger.error('Configuration Set no existe en SES.');
     }
 
-    await createEmailLog({
+    createEmailLog({
       to,
       userId: options.userId || null,
       subject: templateName,
