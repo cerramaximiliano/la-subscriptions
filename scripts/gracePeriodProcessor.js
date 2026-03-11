@@ -588,6 +588,9 @@ async function sendGracePeriodReminders(taskConfig = null) {
             continue;
           }
 
+          // Calcular impacto sobre el grupo
+          const groupImpact = await calculateGroupImpact(user._id, targetPlan);
+
           // LOG DETALLADO DE RECURSOS CALCULADOS
           logger.info(`[RECURSOS] Usuario: ${user.email} (${user._id})`);
           logger.info(`[RECURSOS] Plan objetivo: ${targetPlan}`);
@@ -595,6 +598,9 @@ async function sendGracePeriodReminders(taskConfig = null) {
           logger.info(`[RECURSOS] Recursos actuales: folders=${resources.current.folders}, calculators=${resources.current.calculators}, contacts=${resources.current.contacts}`);
           logger.info(`[RECURSOS] Límites del plan: folders=${resources.limits.maxFolders}, calculators=${resources.limits.maxCalculators}, contacts=${resources.limits.maxContacts}`);
           logger.info(`[RECURSOS] Recursos a archivar: folders=${resources.toArchive.folders}, calculators=${resources.toArchive.calculators}, contacts=${resources.toArchive.contacts}, total=${resources.toArchive.folders + resources.toArchive.calculators + resources.toArchive.contacts}`);
+          if (groupImpact.hasGroup) {
+            logger.info(`[RECURSOS] Grupo: groupWillBeSuspended=${groupImpact.groupWillBeSuspended}, membersToSuspend=${groupImpact.membersToSuspend}`);
+          }
 
           const emailData = {
             planName: subscription.plan,
@@ -614,7 +620,13 @@ async function sendGracePeriodReminders(taskConfig = null) {
               maxFolders: resources.limits.maxFolders,
               maxCalculators: resources.limits.maxCalculators,
               maxContacts: resources.limits.maxContacts
-            }
+            },
+            // Impacto sobre el grupo
+            groupHasTeam: groupImpact.hasGroup,
+            groupWillBeSuspended: groupImpact.groupWillBeSuspended,
+            groupMembersToSuspend: groupImpact.membersToSuspend,
+            groupCurrentMembers: groupImpact.currentMembersCount,
+            groupMaxMembersAllowed: groupImpact.maxMembersAllowed
           };
 
           if (daysRemaining <= 1 && !subscription.downgradeGracePeriod.reminder1DaySent) {
@@ -653,6 +665,9 @@ async function sendGracePeriodReminders(taskConfig = null) {
               continue;
             }
 
+            // Calcular impacto sobre el grupo
+            const groupImpact = await calculateGroupImpact(user._id, targetPlan);
+
             // Calcular fecha de expiración del período de gracia (15 días desde primer fallo)
             const gracePeriodEndDate = new Date(subscription.paymentFailures.firstFailedAt);
             gracePeriodEndDate.setDate(gracePeriodEndDate.getDate() + 15);
@@ -675,7 +690,13 @@ async function sendGracePeriodReminders(taskConfig = null) {
                 maxFolders: resources.limits.maxFolders,
                 maxCalculators: resources.limits.maxCalculators,
                 maxContacts: resources.limits.maxContacts
-              }
+              },
+              // Impacto sobre el grupo
+              groupHasTeam: groupImpact.hasGroup,
+              groupWillBeSuspended: groupImpact.groupWillBeSuspended,
+              groupMembersToSuspend: groupImpact.membersToSuspend,
+              groupCurrentMembers: groupImpact.currentMembersCount,
+              groupMaxMembersAllowed: groupImpact.maxMembersAllowed
             });
             await Subscription.updateOne(
               { _id: subscription._id },
@@ -740,6 +761,40 @@ async function cleanupObsoleteData() {
     logger.error('Error en cleanupObsoleteData:', error);
     throw error;
   }
+}
+
+/**
+ * Calcular impacto sobre el grupo (solo lectura, sin modificar datos)
+ * Usado para incluir la info en los emails de advertencia
+ */
+async function calculateGroupImpact(userId, targetPlan) {
+  const result = {
+    hasGroup: false,
+    groupWillBeSuspended: false,
+    membersToSuspend: 0,
+    currentMembersCount: 0,
+    maxMembersAllowed: getGroupMemberLimit(targetPlan)
+  };
+
+  try {
+    const activeGroup = await Group.findOne({ owner: userId, status: 'active' });
+    if (!activeGroup) return result;
+
+    result.hasGroup = true;
+    const activeMembers = activeGroup.members.filter(m => m.status === 'active');
+    result.currentMembersCount = activeMembers.length; // sin contar al owner
+    const totalActive = activeMembers.length + 1; // +1 por el owner
+
+    if (result.maxMembersAllowed === 0) {
+      result.groupWillBeSuspended = true;
+    } else if (totalActive > result.maxMembersAllowed) {
+      result.membersToSuspend = totalActive - result.maxMembersAllowed;
+    }
+  } catch (error) {
+    logger.error(`[REMINDER] Error calculando impacto de grupo para usuario ${userId}: ${error.message}`);
+  }
+
+  return result;
 }
 
 /**
