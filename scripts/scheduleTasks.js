@@ -185,8 +185,20 @@ async function syncWithStripe() {
       }
     }
 
-    logger.info(`Sincronización completada: ${syncedCount} 
-  actualizadas, ${errorCount} errores`);
+    logger.info(`Sincronización completada: ${syncedCount} actualizadas, ${errorCount} errores`);
+
+    if (errorCount > 0) {
+      const adminEmail = process.env.ADMIN_EMAIL;
+      if (adminEmail) {
+        const subject = `[La-Subscriptions] Sync con Stripe: ${errorCount} error(es)`;
+        const body = `Se completó la sincronización con Stripe con ${errorCount} error(es) y ${syncedCount} actualización(es).\n\nRevisa los logs del servidor para más detalles.`;
+        emailService.sendEmail(adminEmail, 'syncStripeError', { subject, body }, {
+          templateCategory: 'healthCheck',
+          templateName: 'stripeSyncError',
+          metadata: { errorCount, syncedCount }
+        }).catch(e => logger.error('Error enviando notificación admin de sync:', e.message));
+      }
+    }
 
   } catch (error) {
     logger.error('Error en sincronización con Stripe:', error);
@@ -341,9 +353,6 @@ async function runTaskManually(taskName) {
       case 'processExpiredGracePeriods':
         await subscriptionService.processExpiredGracePeriods();
         break;
-      case 'sendGracePeriodReminders':
-        await emailService.sendGracePeriodReminders();
-        break;
       case 'syncWithStripe':
         await syncWithStripe();
         break;
@@ -388,7 +397,6 @@ if (require.main === module) {
     console.log('  - processGracePeriods (NUEVO - Procesador unificado)');
     console.log('  - checkExpiredSubscriptions');
     console.log('  - processExpiredGracePeriods');
-    console.log('  - sendGracePeriodReminders');
     console.log('  - syncWithStripe');
     console.log('  - cleanupOldLogs');
     console.log('  - healthCheck');
