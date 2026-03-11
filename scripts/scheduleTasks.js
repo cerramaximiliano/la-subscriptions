@@ -129,8 +129,8 @@ function setupScheduledTasks() {
 async function syncWithStripe() {
   const stripe = require('stripe')(
     process.env.NODE_ENV === 'production'
-      ? process.env.STRIPE_SECRET_KEY
-      : process.env.STRIPE_SECRET_KEY_TEST
+      ? process.env.STRIPE_API_KEY
+      : process.env.STRIPE_API_KEY_DEV
   );
 
   const Subscription = require('../models/Subscription');
