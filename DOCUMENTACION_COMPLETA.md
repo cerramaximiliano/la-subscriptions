@@ -42,8 +42,10 @@ Microservicio de Webhooks
 ├── Grace Period Processor (gracePeriodProcessor.js)
 │   ├── processExpiredGracePeriods() - Downgrades
 │   ├── processPaymentGracePeriods() - Pagos fallidos
-│   ├── performAutoArchiving() - Archivado de contenido
-│   └── sendGracePeriodReminders() - Notificaciones
+│   ├── performAutoArchiving() - Archivado de contenido + grupos
+│   ├── performGroupDowngrade() - Suspensión de grupos/miembros
+│   ├── calculateGroupImpact() - Cálculo de impacto (solo lectura)
+│   └── sendGracePeriodReminders() - Notificaciones con info de grupos
 │
 └── Scheduled Tasks (scheduleTasks.js)
     ├── Grace Period Processor (2:00 AM)
@@ -91,8 +93,9 @@ graph TD
 #### 3. **Gestión de Períodos de Gracia y Auto-archivado**
 - Procesa períodos de gracia vencidos por downgrade
 - Procesa períodos de gracia por pagos fallidos (15 días)
-- Auto-archiva contenido que excede límites del plan
-- Envía recordatorios antes del vencimiento (3 días y 1 día)
+- Auto-archiva contenido que excede límites del plan (carpetas, calculadoras, contactos)
+- **Maneja grupos del owner**: suspende el grupo completo (downgrade a free) o suspende miembros excedentes ordenados por menor actividad (downgrade entre planes de pago)
+- Envía recordatorios antes del vencimiento (3 días y 1 día) con información predictiva del impacto sobre el grupo
 - Limpia registros obsoletos de más de 30 días
 - **NUEVO**: Usa PlanConfig para determinar límites de archivado
 
@@ -145,30 +148,73 @@ graph TD
 Cuando un usuario baja de plan (ej: Premium → Standard o Free):
 
 ```javascript
-// Límites por plan
+// Límites por plan (recursos)
 const limits = {
-  free: { maxFolders: 5, maxCalculators: 3, maxContacts: 10 },
-  standard: { maxFolders: 50, maxCalculators: 20, maxContacts: 100 },
-  premium: { maxFolders: 999999, maxCalculators: 999999, maxContacts: 999999 }
+  free:     { maxFolders: 5,   maxCalculators: 3,   maxContacts: 10  },
+  standard: { maxFolders: 50,  maxCalculators: 20,  maxContacts: 100 },
+  premium:  { maxFolders: 500, maxCalculators: 200, maxContacts: 1000 }
 };
 
+// Límites por plan (miembros de grupo, total incluyendo owner)
+const groupLimits = { free: 0, standard: 5, premium: 10 };
+
 // Se archivan automáticamente los elementos más antiguos que excedan el límite
+// Se actúa sobre el grupo del owner según el plan destino
 ```
 
-#### 2. Auto-archivado por Pagos Fallidos
+#### 2. Manejo de Grupos al Vencer el Período
+
+Al ejecutar `performAutoArchiving(userId, targetPlan)`, se llama al final a `performGroupDowngrade(userId, targetPlan)`:
+
+**Downgrade a `free`:**
+- El grupo pasa a `status: "suspended"`
+- Todas las invitaciones `pending` pasan a `"expired"`
+- Se registra en `group.history`: `{ action: "group_updated", reason: "grace_period_expired" }`
+
+**Downgrade entre planes de pago (ej: Premium → Standard):**
+- Si `miembros activos + 1 (owner) > límite del plan`:
+  - Se suspenden los miembros con menor `lastActivityAt` (nulls primero)
+  - Cada suspensión registra en `group.history`: `{ action: "member_removed", reason: "grace_period_expired" }`
+  - Las invitaciones `pending` pasan a `"expired"`
+
+**Sin exceso:** No se toma ninguna acción sobre el grupo.
+
+#### 3. Auto-archivado por Pagos Fallidos
 Después de 15 días en `grace_period` por pagos fallidos:
 - La suscripción cambia a plan FREE
 - Se archiva todo el contenido que exceda los límites FREE
+- El grupo se suspende completamente (plan free no permite equipos)
 - Se actualiza el estado a `archived`
 
-#### 3. Recordatorios Automatizados
-- **3 días antes**: Primer recordatorio
-- **1 día antes**: Recordatorio urgente
+#### 4. Recordatorios Automatizados
+- **3 días antes**: Primer recordatorio con info predictiva del grupo
+- **1 día antes**: Recordatorio urgente con info predictiva del grupo
 - **Recordatorio de pago**: Durante el período de gracia por pagos
 
-#### 4. Limpieza de Datos
+Los emails de recordatorio incluyen las siguientes variables de grupo:
+
+| Variable | Descripción |
+|----------|-------------|
+| `groupHasTeam` | Si el usuario tiene un equipo activo |
+| `groupWillBeSuspended` | Si el equipo será suspendido (plan free) |
+| `groupMembersToSuspend` | Miembros que serán suspendidos |
+| `groupCurrentMembers` | Miembros activos actuales |
+| `groupMaxMembersAllowed` | Máximo permitido en el plan destino |
+
+#### 5. Limpieza de Datos
 - Elimina registros de períodos de gracia procesados hace más de 30 días
 - Limpia notificaciones antiguas
+
+#### 6. Modelo `Group.js` en `la-subscriptions`
+
+Para operar sobre la colección `groups` sin depender del servidor principal, el microservicio incluye un esquema Mongoose mínimo propio en `models/Group.js`. Comparte la misma base de datos MongoDB y usa `mongoose.models.Group || mongoose.model('Group', groupSchema)` para evitar conflictos de re-registro.
+
+Campos relevantes que utiliza:
+- `owner` (ObjectId): identifica al propietario del equipo
+- `status` (String): `active` | `suspended` | `archived`
+- `members[]`: array con `{ userId, role, status, joinedAt, lastActivityAt }`
+- `invitations[]`: array con `{ status: pending | accepted | expired | ... }`
+- `history[]`: log de acciones `{ action, performedBy, targetUser, details, timestamp }`
 
 ### Ejecución Manual
 
