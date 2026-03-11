@@ -18,6 +18,7 @@ const Contact = require('../models/Contact');
 const Alert = require('../models/Alert');
 const PlanConfig = require('../models/PlanConfig');
 const CronTaskConfig = require('../models/CronTaskConfig');
+const Group = require('../models/Group');
 
 /**
  * Función principal que procesa períodos de gracia
@@ -181,13 +182,20 @@ async function processExpiredGracePeriods(taskConfig = null) {
         await subscription.save();
         
         // Calcular totales
-        const totalArchived = 
+        const totalArchived =
           (archiveResult.folders?.archived || 0) +
           (archiveResult.calculators?.archived || 0) +
           (archiveResult.contacts?.archived || 0);
-        
+
+        const groupAction = archiveResult.groups?.action;
+        if (groupAction === 'group_suspended') {
+          logger.info(`[AUTO-ARCHIVE] Grupo suspendido`);
+        } else if (groupAction === 'members_suspended') {
+          logger.info(`[AUTO-ARCHIVE] ${archiveResult.groups.membersSuspended} miembro(s) suspendido(s) del grupo`);
+        }
+
         logger.info(`[AUTO-ARCHIVE] Completado - ${totalArchived} elementos archivados`);
-        
+
         // Enviar notificación
         if (user.email) {
           await emailService.sendSubscriptionEmail(user, 'gracePeriodExpired', {
@@ -197,6 +205,8 @@ async function processExpiredGracePeriods(taskConfig = null) {
             calculatorsArchived: archiveResult.calculators?.archived || 0,
             contactsArchived: archiveResult.contacts?.archived || 0,
             totalArchived,
+            groupSuspended: groupAction === 'group_suspended',
+            membersSuspended: archiveResult.groups?.membersSuspended || 0,
             planLimits: getPlanLimits(targetPlan, taskConfig)
           });
         }
@@ -316,7 +326,8 @@ async function performAutoArchiving(userId, targetPlan, taskConfig = null) {
     const result = {
       folders: { checked: 0, archived: 0 },
       calculators: { checked: 0, archived: 0 },
-      contacts: { checked: 0, archived: 0 }
+      contacts: { checked: 0, archived: 0 },
+      groups: { checked: 0, suspended: 0, membersSuspended: 0, action: null }
     };
     
     // 1. Archivar carpetas excedentes (más antiguas primero)
@@ -441,8 +452,12 @@ async function performAutoArchiving(userId, targetPlan, taskConfig = null) {
       }
     }
     
+    // 4. Manejar grupo del usuario
+    const groupResult = await performGroupDowngrade(userId, targetPlan);
+    result.groups = groupResult;
+
     logger.info(`[AUTO-ARCHIVE] Resultado para usuario ${userId}:`, result);
-    
+
     return result;
     
   } catch (error) {
@@ -725,6 +740,86 @@ async function cleanupObsoleteData() {
     logger.error('Error en cleanupObsoleteData:', error);
     throw error;
   }
+}
+
+/**
+ * Límites de miembros de grupo por plan (total incluyendo owner)
+ */
+function getGroupMemberLimit(plan) {
+  const limits = { free: 0, standard: 5, premium: 10 };
+  return limits[plan] ?? 0;
+}
+
+/**
+ * Manejar grupo del owner cuando expira período de gracia
+ * - free: suspender grupo completo
+ * - standard/premium con exceso: suspender miembros menos activos
+ */
+async function performGroupDowngrade(userId, targetPlan) {
+  const result = { checked: 0, suspended: 0, membersSuspended: 0, action: null };
+
+  try {
+    const activeGroup = await Group.findOne({ owner: userId, status: 'active' });
+    if (!activeGroup) return result;
+
+    result.checked = 1;
+    const maxTotal = getGroupMemberLimit(targetPlan);
+    const activeMembers = activeGroup.members.filter(m => m.status === 'active');
+    const totalActive = activeMembers.length + 1; // +1 for owner
+
+    if (maxTotal === 0) {
+      // Plan free: suspender grupo completo
+      activeGroup.status = 'suspended';
+      activeGroup.invitations.forEach(inv => {
+        if (inv.status === 'pending') inv.status = 'expired';
+      });
+      activeGroup.history.push({
+        action: 'group_updated',
+        performedBy: userId,
+        details: { status: 'suspended', reason: 'grace_period_expired', targetPlan }
+      });
+      await activeGroup.save();
+      result.suspended = 1;
+      result.action = 'group_suspended';
+      logger.info(`[AUTO-ARCHIVE] Grupo ${activeGroup._id} suspendido (downgrade a free)`);
+
+    } else if (totalActive > maxTotal) {
+      // Plan de pago con exceso: suspender miembros menos activos primero
+      const excess = totalActive - maxTotal;
+      const sorted = [...activeMembers].sort((a, b) => {
+        if (!a.lastActivityAt && !b.lastActivityAt) return new Date(a.joinedAt) - new Date(b.joinedAt);
+        if (!a.lastActivityAt) return -1;
+        if (!b.lastActivityAt) return 1;
+        return new Date(a.lastActivityAt) - new Date(b.lastActivityAt);
+      });
+
+      for (const memberData of sorted.slice(0, excess)) {
+        const member = activeGroup.members.id(memberData._id);
+        if (member) {
+          member.status = 'suspended';
+          activeGroup.history.push({
+            action: 'member_removed',
+            performedBy: userId,
+            targetUser: member.userId,
+            details: { reason: 'grace_period_expired', targetPlan, previousRole: member.role }
+          });
+          result.membersSuspended++;
+          logger.info(`[AUTO-ARCHIVE] Miembro ${member.userId} suspendido en grupo ${activeGroup._id}`);
+        }
+      }
+
+      activeGroup.invitations.forEach(inv => {
+        if (inv.status === 'pending') inv.status = 'expired';
+      });
+      await activeGroup.save();
+      result.action = 'members_suspended';
+    }
+
+  } catch (error) {
+    logger.error(`[AUTO-ARCHIVE] Error procesando grupo para usuario ${userId}: ${error.message}`);
+  }
+
+  return result;
 }
 
 /**
