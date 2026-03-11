@@ -31,8 +31,7 @@ const emailLogSchema = new Schema({
   },
   sesMessageId: {
     type: String,
-    default: null,
-    index: true
+    default: null
   },
   status: {
     type: String,

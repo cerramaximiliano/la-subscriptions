@@ -150,11 +150,18 @@ async function syncWithStripe() {
 
     for (const subscription of activeSubscriptions) {
       try {
+        // Obtener el ID de Stripe correcto (soporta formato string y {live, test})
+        const mode = process.env.NODE_ENV === 'production' ? 'live' : 'test';
+        const stripeSubId = subscription.getStripeSubscriptionId(mode);
+
+        if (!stripeSubId) {
+          logger.warn(`Suscripción ${subscription._id} sin stripeSubscriptionId válido, omitiendo`);
+          continue;
+        }
+
         // Obtener datos actualizados de Stripe
         const stripeSubscription = await
-          stripe.subscriptions.retrieve(
-            subscription.stripeSubscriptionId
-          );
+          stripe.subscriptions.retrieve(stripeSubId);
 
         // Verificar si hay cambios importantes
         const needsUpdate =
@@ -173,8 +180,7 @@ async function syncWithStripe() {
         }
 
       } catch (error) {
-        logger.error(`Error sincronizando suscripción 
-  ${subscription._id}:`, error.message);
+        logger.error(`Error sincronizando suscripción ${subscription._id}: ${error.message}`);
         errorCount++;
       }
     }
