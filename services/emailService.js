@@ -1,7 +1,35 @@
 const { SESClient, SendEmailCommand, GetIdentityVerificationAttributesCommand, GetSendQuotaCommand } = require('@aws-sdk/client-ses');
 const logger = require('../utils/logger');
 const EmailTemplate = require('../models/EmailTemplate');
+const EmailLog = require('../models/EmailLog');
 const { fillTemplate, validateTemplateData } = require('../utils/templateHelper');
+
+const TEMPLATE_CATEGORY_MAP = {
+  subscriptionCreated: 'subscription',
+  subscriptionImmediateCancellation: 'subscription',
+  subscriptionScheduledCancellation: 'subscription',
+  subscriptionCanceled: 'subscription',
+  gracePeriodReminderWithExcess: 'subscription',
+  gracePeriodReminderNoExcess: 'subscription',
+  gracePeriodExpiredWithArchive: 'subscription',
+  gracePeriodExpiredNoArchive: 'subscription',
+  scheduledCancellation: 'subscription',
+  planDowngraded: 'subscription',
+  planUpgraded: 'subscription',
+  paymentFailedFirst: 'payment',
+  paymentFailedSecond: 'payment',
+  paymentFailedFinal: 'payment',
+  paymentFailedSuspension: 'payment',
+  paymentRecovered: 'payment',
+};
+
+const createEmailLog = async (logData) => {
+  try {
+    await EmailLog.create(logData);
+  } catch (err) {
+    logger.error(`Error guardando EmailLog: ${err.message}`);
+  }
+};
 
 // Configurar cliente SES
 const sesClient = new SESClient({
@@ -850,7 +878,7 @@ async function getEmailTemplate(templateName) {
 /**
  * Envía un email usando AWS SES
  */
-exports.sendEmail = async (to, templateName, data) => {
+exports.sendEmail = async (to, templateName, data, options = {}) => {
   try {
     const template = await getEmailTemplate(templateName);
     if (!template) {
@@ -945,6 +973,17 @@ exports.sendEmail = async (to, templateName, data) => {
     logger.info(`MessageId: ${response.MessageId}`);
     logger.info(`Template: ${templateName} (${template.fromDB ? 'BD' : 'código'}), To: ${actualRecipient}${originalEmail !== actualRecipient ? ` (originalmente para: ${originalEmail})` : ''}`);
 
+    await createEmailLog({
+      to: originalEmail,
+      userId: options.userId || null,
+      subject: subjectContent,
+      templateCategory: options.templateCategory || TEMPLATE_CATEGORY_MAP[templateName] || 'transactional',
+      templateName,
+      sesMessageId: response.MessageId || null,
+      status: 'sent',
+      metadata: options.metadata || {}
+    });
+
     return response;
   } catch (error) {
     logger.error(`Error enviando email via AWS SES: ${error.message}`);
@@ -956,6 +995,17 @@ exports.sendEmail = async (to, templateName, data) => {
     } else if (error.name === 'ConfigurationSetDoesNotExist') {
       logger.error('Configuration Set no existe en SES.');
     }
+
+    await createEmailLog({
+      to,
+      userId: options.userId || null,
+      subject: templateName,
+      templateCategory: options.templateCategory || TEMPLATE_CATEGORY_MAP[templateName] || 'transactional',
+      templateName,
+      status: 'failed',
+      errorMessage: error.message,
+      metadata: options.metadata || {}
+    });
 
     throw error;
   }
@@ -1047,7 +1097,7 @@ exports.sendSubscriptionEmail = async (user, event, additionalData = {}) => {
         return;
     }
 
-    await this.sendEmail(user.email, templateName, data);
+    await this.sendEmail(user.email, templateName, data, { userId: user._id });
   } catch (error) {
     logger.error(`Error enviando email de suscripción: ${error.message}`);
     // No lanzar error para no interrumpir el flujo principal
@@ -1110,7 +1160,7 @@ exports.sendPaymentEmail = async (user, type, data) => {
     };
 
     if (type === 'paymentRecovered') {
-      await this.sendEmail(user.email, 'paymentRecovered', emailData);
+      await this.sendEmail(user.email, 'paymentRecovered', emailData, { userId: user._id });
       logger.info(`Email de pago recuperado enviado a ${user.email}`);
     } else {
       logger.warn(`Tipo de email de pago no reconocido: ${type}`);
